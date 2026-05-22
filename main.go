@@ -74,6 +74,29 @@ func run(args []string) error {
 			}
 		}
 		return nil
+	case "next":
+		noRestart, err := parseNextArgs(args[1:])
+		if err != nil {
+			return err
+		}
+
+		result, err := NextSavedAuthFromHome()
+		if err != nil {
+			return err
+		}
+
+		if !result.Loaded {
+			fmt.Println("nothing to switch")
+			return nil
+		}
+
+		fmt.Printf("loaded %s\n", result.Email)
+		if !noRestart {
+			if err := RestartCodexApp(); err != nil {
+				return err
+			}
+		}
+		return nil
 	case "help", "-h", "--help":
 		fmt.Println(usage())
 		return nil
@@ -121,6 +144,21 @@ func parseLoadArgs(args []string) (int, bool, error) {
 	return index, noRestart, nil
 }
 
+func parseNextArgs(args []string) (bool, error) {
+	noRestart := false
+
+	for _, arg := range args {
+		switch arg {
+		case "--no-restart":
+			noRestart = true
+		default:
+			return false, fmt.Errorf("unknown next argument %q\n\n%w", arg, usageError())
+		}
+	}
+
+	return noRestart, nil
+}
+
 func usage() string {
-	return "usage: go-codex-switch <command>\n\ncommands:\n  save                  save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                    list saved auth files\n  load <n>              load a saved auth file by number from ls\n  load <n> --no-restart load without restarting Codex"
+	return "usage: go-codex-switch <command>\n\ncommands:\n  save                  save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                    list saved auth files\n  load <n>              load a saved auth file by number from ls\n  load <n> --no-restart load without restarting Codex\n  next                  load the next saved auth account\n  next --no-restart     load next without restarting Codex"
 }

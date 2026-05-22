@@ -58,3 +58,45 @@ func TestParseLoadArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestParseNextArgs(t *testing.T) {
+	tests := []struct {
+		name          string
+		args          []string
+		wantNoRestart bool
+		wantErr       bool
+	}{
+		{
+			name: "no args",
+		},
+		{
+			name:          "no restart",
+			args:          []string{"--no-restart"},
+			wantNoRestart: true,
+		},
+		{
+			name:    "unknown arg",
+			args:    []string{"1"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			noRestart, err := parseNextArgs(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("parseNextArgs returned nil error")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("parseNextArgs returned error: %v", err)
+			}
+			if noRestart != tt.wantNoRestart {
+				t.Fatalf("noRestart = %t, want %t", noRestart, tt.wantNoRestart)
+			}
+		})
+	}
+}

@@ -106,6 +106,55 @@ func LoadSavedAuthFromHome(index int) (LoadResult, error) {
 	return LoadSavedAuth(homeDir, index)
 }
 
+func NextSavedAuthFromHome() (LoadResult, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return LoadResult{}, fmt.Errorf("find home directory: %w", err)
+	}
+
+	return NextSavedAuth(homeDir)
+}
+
+func NextSavedAuth(homeDir string) (LoadResult, error) {
+	emails, err := ListSavedAuthEmails(homeDir)
+	if err != nil {
+		return LoadResult{}, err
+	}
+
+	if len(emails) == 0 {
+		return LoadResult{}, errors.New("no saved auth accounts")
+	}
+
+	if len(emails) == 1 {
+		return LoadResult{
+			Email:         emails[0],
+			AlreadyActive: true,
+		}, nil
+	}
+
+	currentEmail, err := CurrentAuthEmail(homeDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return LoadSavedAuth(homeDir, 1)
+		}
+
+		return LoadResult{}, err
+	}
+
+	for i, email := range emails {
+		if email == currentEmail {
+			nextIndex := i + 2
+			if nextIndex > len(emails) {
+				nextIndex = 1
+			}
+
+			return LoadSavedAuth(homeDir, nextIndex)
+		}
+	}
+
+	return LoadSavedAuth(homeDir, 1)
+}
+
 func LoadSavedAuth(homeDir string, index int) (LoadResult, error) {
 	if index < 1 {
 		return LoadResult{}, fmt.Errorf("account number must be 1 or greater")

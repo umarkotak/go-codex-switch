@@ -44,6 +44,8 @@ save
 ls
 load <number>
 load <number> --no-restart
+next
+next --no-restart
 ```
 
 ## Save Current Account
@@ -131,6 +133,28 @@ This also works:
 
 ```bash
 go-codex-switch load --no-restart 1
+```
+
+## Load The Next Account
+
+Rotate to the next saved account:
+
+```bash
+go-codex-switch next
+```
+
+If the active account is account `1`, this loads account `2`. If the active account is the last saved account, it wraps back to account `1`.
+
+If `~/.codex/auth.json` does not exist, `next` loads account `1`.
+
+If there is only one saved account, nothing changes.
+
+Like `load`, `next` restarts Codex after a successful switch by default.
+
+To rotate without restarting Codex:
+
+```bash
+go-codex-switch next --no-restart
 ```
 
 ## Data Locations

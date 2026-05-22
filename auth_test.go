@@ -277,6 +277,90 @@ func TestLoadSavedAuthReturnsErrorForMissingAccountNumber(t *testing.T) {
 	}
 }
 
+func TestNextSavedAuthLoadsNextAccount(t *testing.T) {
+	homeDir := t.TempDir()
+	mustWriteAuthFile(t, homeDir, "a@gmail.com")
+	targetAuth := testAuthJSON("b@gmail.com")
+
+	mustWriteSavedAuthFile(t, homeDir, "a@gmail.com", testAuthJSON("a@gmail.com"))
+	mustWriteSavedAuthFile(t, homeDir, "b@gmail.com", targetAuth)
+
+	result, err := NextSavedAuth(homeDir)
+	if err != nil {
+		t.Fatalf("NextSavedAuth returned error: %v", err)
+	}
+
+	if !result.Loaded || result.Email != "b@gmail.com" {
+		t.Fatalf("result = %#v, want loaded b@gmail.com", result)
+	}
+
+	activeAuth, err := os.ReadFile(filepath.Join(homeDir, codexDirName, authFileName))
+	if err != nil {
+		t.Fatalf("read active auth: %v", err)
+	}
+	if string(activeAuth) != targetAuth {
+		t.Fatal("active auth was not replaced with next saved auth")
+	}
+}
+
+func TestNextSavedAuthWrapsToFirstAccount(t *testing.T) {
+	homeDir := t.TempDir()
+	mustWriteAuthFile(t, homeDir, "b@gmail.com")
+	targetAuth := testAuthJSON("a@gmail.com")
+
+	mustWriteSavedAuthFile(t, homeDir, "a@gmail.com", targetAuth)
+	mustWriteSavedAuthFile(t, homeDir, "b@gmail.com", testAuthJSON("b@gmail.com"))
+
+	result, err := NextSavedAuth(homeDir)
+	if err != nil {
+		t.Fatalf("NextSavedAuth returned error: %v", err)
+	}
+
+	if !result.Loaded || result.Email != "a@gmail.com" {
+		t.Fatalf("result = %#v, want loaded a@gmail.com", result)
+	}
+}
+
+func TestNextSavedAuthLoadsFirstAccountWhenCurrentAuthFileDoesNotExist(t *testing.T) {
+	homeDir := t.TempDir()
+	targetAuth := testAuthJSON("a@gmail.com")
+
+	mustWriteSavedAuthFile(t, homeDir, "a@gmail.com", targetAuth)
+	mustWriteSavedAuthFile(t, homeDir, "b@gmail.com", testAuthJSON("b@gmail.com"))
+
+	result, err := NextSavedAuth(homeDir)
+	if err != nil {
+		t.Fatalf("NextSavedAuth returned error: %v", err)
+	}
+
+	if !result.Loaded || result.Email != "a@gmail.com" {
+		t.Fatalf("result = %#v, want loaded a@gmail.com", result)
+	}
+}
+
+func TestNextSavedAuthDoesNothingWithOneSavedAccount(t *testing.T) {
+	homeDir := t.TempDir()
+	currentAuth := mustWriteAuthFile(t, homeDir, "current@gmail.com")
+	mustWriteSavedAuthFile(t, homeDir, "only@gmail.com", testAuthJSON("only@gmail.com"))
+
+	result, err := NextSavedAuth(homeDir)
+	if err != nil {
+		t.Fatalf("NextSavedAuth returned error: %v", err)
+	}
+
+	if result.Loaded || !result.AlreadyActive {
+		t.Fatalf("result = %#v, want no load", result)
+	}
+
+	activeAuth, err := os.ReadFile(filepath.Join(homeDir, codexDirName, authFileName))
+	if err != nil {
+		t.Fatalf("read active auth: %v", err)
+	}
+	if string(activeAuth) != currentAuth {
+		t.Fatal("active auth should not change when only one saved account exists")
+	}
+}
+
 func mustWriteAuthFile(t *testing.T, homeDir, email string) string {
 	t.Helper()
 
