@@ -42,6 +42,7 @@ Available commands:
 ```text
 save
 ls
+ls --usage
 load <number>
 load <number> --no-restart
 next
@@ -85,13 +86,28 @@ go-codex-switch ls
 Example output:
 
 ```text
-1. codingmase@gmail.com
-2. jhone@gmail.com *
+[*] 1. codingmase@gmail.com
+[_] 2. jhone@gmail.com
 ```
 
-The trailing `*` marks the account currently active in `~/.codex/auth.json`.
+The `[*]` marker shows the account currently active in `~/.codex/auth.json`.
 
 If `~/.codex/auth.json` does not exist, saved accounts are still listed, but no account is marked active.
+
+To include Codex usage for each saved account:
+
+```bash
+go-codex-switch ls --usage
+```
+
+Example output:
+
+```text
+[*] 1. codingmase@gmail.com | session: 58% left, weekly: 87.5% left, reset in: 5d 15h
+[_] 2. jhone@gmail.com      | session: 92% left, weekly: 97% left
+```
+
+Usage is fetched from the ChatGPT Codex usage endpoint using each saved account's `access_token` and `account_id`. If usage cannot be fetched for one account, the list still renders and shows `usage unavailable` beside that account.
 
 ## Load An Account
 

@@ -2,6 +2,93 @@ package main
 
 import "testing"
 
+func TestParseLsArgs(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		wantUsage bool
+		wantErr   bool
+	}{
+		{
+			name: "no args",
+		},
+		{
+			name:      "usage",
+			args:      []string{"--usage"},
+			wantUsage: true,
+		},
+		{
+			name:    "unknown arg",
+			args:    []string{"--wat"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			showUsage, err := parseLsArgs(tt.args)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("parseLsArgs returned nil error")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("parseLsArgs returned error: %v", err)
+			}
+			if showUsage != tt.wantUsage {
+				t.Fatalf("showUsage = %t, want %t", showUsage, tt.wantUsage)
+			}
+		})
+	}
+}
+
+func TestFormatSavedAuthAccountRow(t *testing.T) {
+	accounts := []SavedAuthAccount{
+		{Email: "codingmase@gmail.com", IsActive: true},
+		{Email: "jhone.doe@gmail.com"},
+	}
+	width := maxSavedAuthEmailWidth(accounts)
+
+	got := formatSavedAuthAccountRow(1, accounts[0], width, false)
+	want := "[*] 1. codingmase@gmail.com"
+	if got != want {
+		t.Fatalf("row = %q, want %q", got, want)
+	}
+
+	got = formatSavedAuthAccountRow(2, accounts[1], width, false)
+	want = "[_] 2. jhone.doe@gmail.com"
+	if got != want {
+		t.Fatalf("row = %q, want %q", got, want)
+	}
+}
+
+func TestFormatSavedAuthAccountRowWithUsageAlignsSeparator(t *testing.T) {
+	usage := &CodexUsageResponse{
+		RateLimit: CodexRateLimitDetails{
+			PrimaryWindow: &CodexUsageWindow{UsedPercent: 30},
+		},
+	}
+	accounts := []SavedAuthAccount{
+		{Email: "a@gmail.com", IsActive: true, Usage: usage},
+		{Email: "longer.name@gmail.com", Usage: usage},
+	}
+	width := maxSavedAuthEmailWidth(accounts)
+
+	got := formatSavedAuthAccountRow(1, accounts[0], width, true)
+	want := "[*] 1. a@gmail.com           | session: 70% left"
+	if got != want {
+		t.Fatalf("row = %q, want %q", got, want)
+	}
+
+	got = formatSavedAuthAccountRow(2, accounts[1], width, true)
+	want = "[_] 2. longer.name@gmail.com | session: 70% left"
+	if got != want {
+		t.Fatalf("row = %q, want %q", got, want)
+	}
+}
+
 func TestParseLoadArgs(t *testing.T) {
 	tests := []struct {
 		name          string

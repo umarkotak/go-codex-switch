@@ -33,22 +33,24 @@ func run(args []string) error {
 		fmt.Printf("saved %s to %s\n", result.Email, result.DestinationPath)
 		return nil
 	case "ls":
-		if len(args) != 1 {
-			return fmt.Errorf("ls does not accept arguments\n\n%w", usageError())
-		}
-
-		accounts, err := ListSavedAuthAccountsFromHome()
+		showUsage, err := parseLsArgs(args[1:])
 		if err != nil {
 			return err
 		}
 
-		for i, account := range accounts {
-			if account.IsActive {
-				fmt.Printf("%d. %s *\n", i+1, account.Email)
-				continue
-			}
+		var accounts []SavedAuthAccount
+		if showUsage {
+			accounts, err = ListSavedAuthAccountsWithUsageFromHome()
+		} else {
+			accounts, err = ListSavedAuthAccountsFromHome()
+		}
+		if err != nil {
+			return err
+		}
 
-			fmt.Printf("%d. %s\n", i+1, account.Email)
+		emailWidth := maxSavedAuthEmailWidth(accounts)
+		for i, account := range accounts {
+			fmt.Println(formatSavedAuthAccountRow(i+1, account, emailWidth, showUsage))
 		}
 		return nil
 	case "load":
@@ -109,6 +111,51 @@ func usageError() error {
 	return errors.New(usage())
 }
 
+func parseLsArgs(args []string) (bool, error) {
+	showUsage := false
+
+	for _, arg := range args {
+		switch arg {
+		case "--usage":
+			showUsage = true
+		default:
+			return false, fmt.Errorf("unknown ls argument %q\n\n%w", arg, usageError())
+		}
+	}
+
+	return showUsage, nil
+}
+
+func maxSavedAuthEmailWidth(accounts []SavedAuthAccount) int {
+	maxWidth := 0
+	for _, account := range accounts {
+		if len(account.Email) > maxWidth {
+			maxWidth = len(account.Email)
+		}
+	}
+
+	return maxWidth
+}
+
+func formatSavedAuthAccountRow(index int, account SavedAuthAccount, emailWidth int, showUsage bool) string {
+	activeMarker := "_"
+	if account.IsActive {
+		activeMarker = "*"
+	}
+
+	if !showUsage {
+		return fmt.Sprintf("[%s] %d. %s", activeMarker, index, account.Email)
+	}
+
+	line := fmt.Sprintf("[%s] %d. %-*s", activeMarker, index, emailWidth, account.Email)
+	usage := FormatCodexUsage(account.Usage, account.UsageError)
+	if usage != "" {
+		line += " | " + usage
+	}
+
+	return line
+}
+
 func parseLoadArgs(args []string) (int, bool, error) {
 	if len(args) == 0 {
 		return 0, false, fmt.Errorf("load requires an account number\n\n%w", usageError())
@@ -160,5 +207,5 @@ func parseNextArgs(args []string) (bool, error) {
 }
 
 func usage() string {
-	return "usage: go-codex-switch <command>\n\ncommands:\n  save                  save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                    list saved auth files\n  load <n>              load a saved auth file by number from ls\n  load <n> --no-restart load without restarting Codex\n  next                  load the next saved auth account\n  next --no-restart     load next without restarting Codex"
+	return "usage: go-codex-switch <command>\n\ncommands:\n  save                  save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                    list saved auth files\n  ls --usage            list saved auth files with Codex usage\n  load <n>              load a saved auth file by number from ls\n  load <n> --no-restart load without restarting Codex\n  next                  load the next saved auth account\n  next --no-restart     load next without restarting Codex"
 }

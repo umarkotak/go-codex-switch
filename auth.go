@@ -50,8 +50,10 @@ type LoadResult struct {
 }
 
 type SavedAuthAccount struct {
-	Email    string
-	IsActive bool
+	Email      string
+	IsActive   bool
+	Usage      *CodexUsageResponse
+	UsageError string
 }
 
 func SaveAuthFromHome() (SaveResult, error) {
@@ -217,6 +219,40 @@ func ListSavedAuthAccountsFromHome() ([]SavedAuthAccount, error) {
 	}
 
 	return ListSavedAuthAccounts(homeDir)
+}
+
+func ListSavedAuthAccountsWithUsageFromHome() ([]SavedAuthAccount, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("find home directory: %w", err)
+	}
+
+	return ListSavedAuthAccountsWithUsage(homeDir, DefaultCodexUsageClient())
+}
+
+func ListSavedAuthAccountsWithUsage(homeDir string, usageClient CodexUsageClient) ([]SavedAuthAccount, error) {
+	accounts, err := ListSavedAuthAccounts(homeDir)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range accounts {
+		authFile, _, err := ReadAuthFile(savedAuthPath(homeDir, accounts[i].Email))
+		if err != nil {
+			accounts[i].UsageError = err.Error()
+			continue
+		}
+
+		usage, err := usageClient.FetchUsage(authFile)
+		if err != nil {
+			accounts[i].UsageError = err.Error()
+			continue
+		}
+
+		accounts[i].Usage = &usage
+	}
+
+	return accounts, nil
 }
 
 func ListSavedAuthAccounts(homeDir string) ([]SavedAuthAccount, error) {
