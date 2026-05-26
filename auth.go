@@ -49,6 +49,12 @@ type LoadResult struct {
 	AlreadyActive bool
 }
 
+type LogoutResult struct {
+	Email       string
+	SavedPath   string
+	DeletedPath string
+}
+
 type SavedAuthAccount struct {
 	Email      string
 	IsActive   bool
@@ -96,6 +102,33 @@ func SaveAuth(homeDir string) (SaveResult, error) {
 		Email:           email,
 		SourcePath:      sourcePath,
 		DestinationPath: destinationPath,
+	}, nil
+}
+
+func LogoutFromHome() (LogoutResult, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return LogoutResult{}, fmt.Errorf("find home directory: %w", err)
+	}
+
+	return Logout(homeDir)
+}
+
+func Logout(homeDir string) (LogoutResult, error) {
+	saveResult, err := SaveAuth(homeDir)
+	if err != nil {
+		return LogoutResult{}, err
+	}
+
+	authPath := filepath.Join(homeDir, codexDirName, authFileName)
+	if err := os.Remove(authPath); err != nil {
+		return LogoutResult{}, fmt.Errorf("delete codex auth file: %w", err)
+	}
+
+	return LogoutResult{
+		Email:       saveResult.Email,
+		SavedPath:   saveResult.DestinationPath,
+		DeletedPath: authPath,
 	}, nil
 }
 

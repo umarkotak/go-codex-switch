@@ -81,6 +81,42 @@ func TestSaveAuthReturnsLoginMessageWhenAuthFileDoesNotExist(t *testing.T) {
 	}
 }
 
+func TestLogoutSavesCurrentAuthThenDeletesCodexAuth(t *testing.T) {
+	homeDir := t.TempDir()
+	authJSON := mustWriteAuthFile(t, homeDir, "codingmase@gmail.com")
+
+	result, err := Logout(homeDir)
+	if err != nil {
+		t.Fatalf("Logout returned error: %v", err)
+	}
+
+	if result.Email != "codingmase@gmail.com" {
+		t.Fatalf("email = %q, want codingmase@gmail.com", result.Email)
+	}
+
+	if _, err := os.Stat(filepath.Join(homeDir, codexDirName, authFileName)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("auth file stat error = %v, want missing file", err)
+	}
+
+	savedAuth, err := os.ReadFile(savedAuthPath(homeDir, "codingmase@gmail.com"))
+	if err != nil {
+		t.Fatalf("read saved auth: %v", err)
+	}
+	if string(savedAuth) != authJSON {
+		t.Fatal("saved auth does not match deleted auth")
+	}
+}
+
+func TestLogoutReturnsLoginMessageWhenAuthFileDoesNotExist(t *testing.T) {
+	_, err := Logout(t.TempDir())
+	if err == nil {
+		t.Fatal("Logout returned nil error")
+	}
+	if err.Error() != loginRequiredError {
+		t.Fatalf("error = %q, want %q", err.Error(), loginRequiredError)
+	}
+}
+
 func TestListSavedAuthEmails(t *testing.T) {
 	homeDir := t.TempDir()
 	switchDir := filepath.Join(homeDir, switchDirName)

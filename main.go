@@ -99,6 +99,21 @@ func run(args []string) error {
 			}
 		}
 		return nil
+	case "logout":
+		if len(args) != 1 {
+			return fmt.Errorf("logout does not accept arguments\n\n%w", usageError())
+		}
+
+		result, err := LogoutFromHome()
+		if err != nil {
+			return err
+		}
+
+		fmt.Printf("logged out %s\n", result.Email)
+		if err := RestartCodexApp(); err != nil {
+			return err
+		}
+		return nil
 	case "help", "-h", "--help":
 		fmt.Println(usage())
 		return nil
@@ -207,5 +222,5 @@ func parseNextArgs(args []string) (bool, error) {
 }
 
 func usage() string {
-	return "usage: go-codex-switch <command>\n\ncommands:\n  save                  save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                    list saved auth files\n  ls --usage            list saved auth files with Codex usage\n  load <n>              load a saved auth file by number from ls\n  load <n> --no-restart load without restarting Codex\n  next                  load the next saved auth account\n  next --no-restart     load next without restarting Codex"
+	return "usage: go-codex-switch <command>\n\ncommands:\n  save                  save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                    list saved auth files\n  ls --usage            list saved auth files with Codex usage\n  load <n>              load a saved auth file by number from ls\n  load <n> --no-restart load without restarting Codex\n  next                  load the next saved auth account\n  next --no-restart     load next without restarting Codex\n  logout                save current auth, delete ~/.codex/auth.json, and restart Codex"
 }

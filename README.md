@@ -74,6 +74,12 @@ Switch to the next account without restarting Codex:
 go-codex-switch next --no-restart
 ```
 
+Logout from Codex:
+
+```bash
+go-codex-switch logout
+```
+
 ## Development
 
 ```bash
