@@ -147,38 +147,28 @@ func FormatCodexUsageAt(usage *CodexUsageResponse, usageError string, now time.T
 		return ""
 	}
 
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 2)
 	if usage.RateLimit.PrimaryWindow != nil {
-		parts = append(parts, "session: "+formatRemainingPercent(usage.RateLimit.PrimaryWindow.UsedPercent)+" left")
+		parts = append(parts, "session: "+formatWindowRemaining(usage.RateLimit.PrimaryWindow, now))
 	}
 	if usage.RateLimit.SecondaryWindow != nil {
-		parts = append(parts, "weekly: "+formatRemainingPercent(usage.RateLimit.SecondaryWindow.UsedPercent)+" left")
-	}
-	if resetIn := formatResetIn(usage.latestResetAt(), now); resetIn != "" {
-		parts = append(parts, "reset in: "+resetIn)
+		parts = append(parts, "weekly: "+formatWindowRemaining(usage.RateLimit.SecondaryWindow, now))
 	}
 
 	if len(parts) == 0 {
 		return "usage unavailable"
 	}
 
-	return strings.Join(parts, ", ")
+	return strings.Join(parts, " | ")
 }
 
-func (usage *CodexUsageResponse) latestResetAt() int64 {
-	if usage == nil {
-		return 0
+func formatWindowRemaining(window *CodexUsageWindow, now time.Time) string {
+	value := formatRemainingPercent(window.UsedPercent) + " left"
+	if resetIn := formatResetIn(window.ResetAt, now); resetIn != "" {
+		value += " (" + resetIn + ")"
 	}
 
-	resetAt := int64(0)
-	if usage.RateLimit.PrimaryWindow != nil && usage.RateLimit.PrimaryWindow.ResetAt > resetAt {
-		resetAt = usage.RateLimit.PrimaryWindow.ResetAt
-	}
-	if usage.RateLimit.SecondaryWindow != nil && usage.RateLimit.SecondaryWindow.ResetAt > resetAt {
-		resetAt = usage.RateLimit.SecondaryWindow.ResetAt
-	}
-
-	return resetAt
+	return value
 }
 
 func formatRemainingPercent(usedPercent float64) string {
@@ -203,8 +193,14 @@ func formatResetIn(resetAt int64, now time.Time) string {
 
 	switch {
 	case days > 0:
+		if hours == 0 {
+			return fmt.Sprintf("%dd", days)
+		}
 		return fmt.Sprintf("%dd %dh", days, hours)
 	case hours > 0:
+		if minutes == 0 {
+			return fmt.Sprintf("%dh", hours)
+		}
 		return fmt.Sprintf("%dh %dm", hours, minutes)
 	default:
 		if minutes < 1 {

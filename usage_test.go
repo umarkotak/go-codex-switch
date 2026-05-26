@@ -126,7 +126,7 @@ func TestFormatCodexUsage(t *testing.T) {
 	}
 
 	got := FormatCodexUsageAt(usage, "", now)
-	want := "session: 58% left, weekly: 87.5% left, reset in: 5d 15h"
+	want := "session: 58% left (5h) | weekly: 87.5% left (5d 15h)"
 	if got != want {
 		t.Fatalf("FormatCodexUsage = %q, want %q", got, want)
 	}
@@ -145,7 +145,7 @@ func TestFormatCodexUsageWithoutResetDate(t *testing.T) {
 	}
 
 	got := FormatCodexUsageAt(usage, "", time.Unix(1_700_000_000, 0))
-	want := "session: 70% left, weekly: 82% left"
+	want := "session: 70% left | weekly: 82% left"
 	if got != want {
 		t.Fatalf("FormatCodexUsage = %q, want %q", got, want)
 	}

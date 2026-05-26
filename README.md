@@ -46,8 +46,8 @@ go-codex-switch ls --usage
 ```
 
 ```text
-[*] 1. codingmase@gmail.com | session: 58% left, weekly: 87.5% left, reset in: 5d 15h
-[_] 2. jhone@gmail.com      | session: 92% left, weekly: 97% left
+[*] 1. codingmase@gmail.com | session: 93% left (5h) | weekly: 99% left (6d 23h)
+[_] 2. jhone@gmail.com      | session: 92% left (4h 12m) | weekly: 97% left (6d 8h)
 ```
 
 Load an account by number:
