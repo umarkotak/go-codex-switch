@@ -65,25 +65,32 @@ func TestFormatSavedAuthAccountRow(t *testing.T) {
 }
 
 func TestFormatSavedAuthAccountRowWithUsageAlignsSeparator(t *testing.T) {
-	usage := &CodexUsageResponse{
+	activeUsage := &CodexUsageResponse{
 		RateLimit: CodexRateLimitDetails{
-			PrimaryWindow: &CodexUsageWindow{UsedPercent: 30},
+			PrimaryWindow:   &CodexUsageWindow{UsedPercent: 12},
+			SecondaryWindow: &CodexUsageWindow{UsedPercent: 2},
+		},
+	}
+	inactiveUsage := &CodexUsageResponse{
+		RateLimit: CodexRateLimitDetails{
+			PrimaryWindow:   &CodexUsageWindow{UsedPercent: 100},
+			SecondaryWindow: &CodexUsageWindow{UsedPercent: 41},
 		},
 	}
 	accounts := []SavedAuthAccount{
-		{Email: "a@gmail.com", IsActive: true, Usage: usage},
-		{Email: "longer.name@gmail.com", Usage: usage},
+		{Email: "codingmase@gmail.com", IsActive: true, Usage: activeUsage},
+		{Email: "seakunsleep@gmail.com", Usage: inactiveUsage},
 	}
 	width := maxSavedAuthEmailWidth(accounts)
 
 	got := formatSavedAuthAccountRow(1, accounts[0], width, true)
-	want := "[*] 1. a@gmail.com           | session: 70% left"
+	want := "[*] 1. codingmase@gmail.com  | session: 88% left | weekly: 98% left"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
 	}
 
 	got = formatSavedAuthAccountRow(2, accounts[1], width, true)
-	want = "[_] 2. longer.name@gmail.com | session: 70% left"
+	want = "[_] 2. seakunsleep@gmail.com | session: 0% left | weekly: 59% left"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
 	}
