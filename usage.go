@@ -140,11 +140,15 @@ func FormatCodexUsage(usage *CodexUsageResponse, usageError string) string {
 }
 
 func FormatCodexUsageAt(usage *CodexUsageResponse, usageError string, now time.Time) string {
+	return strings.Join(FormatCodexUsagePartsAt(usage, usageError, now), " | ")
+}
+
+func FormatCodexUsagePartsAt(usage *CodexUsageResponse, usageError string, now time.Time) []string {
 	if usageError != "" {
-		return "usage unavailable"
+		return []string{"usage unavailable"}
 	}
 	if usage == nil {
-		return ""
+		return nil
 	}
 
 	parts := make([]string, 0, 2)
@@ -156,10 +160,10 @@ func FormatCodexUsageAt(usage *CodexUsageResponse, usageError string, now time.T
 	}
 
 	if len(parts) == 0 {
-		return "usage unavailable"
+		return []string{"usage unavailable"}
 	}
 
-	return strings.Join(parts, " | ")
+	return parts
 }
 
 func formatWindowRemaining(window *CodexUsageWindow, now time.Time) string {

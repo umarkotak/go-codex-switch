@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestParseLsArgs(t *testing.T) {
 	tests := []struct {
@@ -51,13 +54,13 @@ func TestFormatSavedAuthAccountRow(t *testing.T) {
 	}
 	width := maxSavedAuthEmailWidth(accounts)
 
-	got := formatSavedAuthAccountRow(1, accounts[0], width, false)
+	got := formatSavedAuthAccountRow(1, accounts[0], width, 0, false, time.Time{})
 	want := "[*] 1. codingmase@gmail.com"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
 	}
 
-	got = formatSavedAuthAccountRow(2, accounts[1], width, false)
+	got = formatSavedAuthAccountRow(2, accounts[1], width, 0, false, time.Time{})
 	want = "[_] 2. jhone.doe@gmail.com"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
@@ -65,16 +68,17 @@ func TestFormatSavedAuthAccountRow(t *testing.T) {
 }
 
 func TestFormatSavedAuthAccountRowWithUsageAlignsSeparator(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
 	activeUsage := &CodexUsageResponse{
 		RateLimit: CodexRateLimitDetails{
-			PrimaryWindow:   &CodexUsageWindow{UsedPercent: 12},
-			SecondaryWindow: &CodexUsageWindow{UsedPercent: 2},
+			PrimaryWindow:   &CodexUsageWindow{UsedPercent: 12, ResetAt: now.Add(4*time.Hour + 14*time.Minute).Unix()},
+			SecondaryWindow: &CodexUsageWindow{UsedPercent: 2, ResetAt: now.Add(6*24*time.Hour + 23*time.Hour).Unix()},
 		},
 	}
 	inactiveUsage := &CodexUsageResponse{
 		RateLimit: CodexRateLimitDetails{
-			PrimaryWindow:   &CodexUsageWindow{UsedPercent: 100},
-			SecondaryWindow: &CodexUsageWindow{UsedPercent: 41},
+			PrimaryWindow:   &CodexUsageWindow{UsedPercent: 100, ResetAt: now.Add(2*time.Hour + 38*time.Minute).Unix()},
+			SecondaryWindow: &CodexUsageWindow{UsedPercent: 41, ResetAt: now.Add(4*24*time.Hour + 11*time.Hour).Unix()},
 		},
 	}
 	accounts := []SavedAuthAccount{
@@ -82,15 +86,16 @@ func TestFormatSavedAuthAccountRowWithUsageAlignsSeparator(t *testing.T) {
 		{Email: "seakunsleep@gmail.com", Usage: inactiveUsage},
 	}
 	width := maxSavedAuthEmailWidth(accounts)
+	sessionWidth := maxSavedAuthSessionUsageWidth(accounts, now)
 
-	got := formatSavedAuthAccountRow(1, accounts[0], width, true)
-	want := "[*] 1. codingmase@gmail.com  | session: 88% left | weekly: 98% left"
+	got := formatSavedAuthAccountRow(1, accounts[0], width, sessionWidth, true, now)
+	want := "[*] 1. codingmase@gmail.com  | session: 88% left (4h 14m) | weekly: 98% left (6d 23h)"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
 	}
 
-	got = formatSavedAuthAccountRow(2, accounts[1], width, true)
-	want = "[_] 2. seakunsleep@gmail.com | session: 0% left | weekly: 59% left"
+	got = formatSavedAuthAccountRow(2, accounts[1], width, sessionWidth, true, now)
+	want = "[_] 2. seakunsleep@gmail.com | session: 0% left (2h 38m)  | weekly: 59% left (4d 11h)"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
 	}

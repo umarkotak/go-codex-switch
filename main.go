@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 )
 
 func main() {
@@ -49,8 +50,10 @@ func run(args []string) error {
 		}
 
 		emailWidth := maxSavedAuthEmailWidth(accounts)
+		now := time.Now()
+		sessionWidth := maxSavedAuthSessionUsageWidth(accounts, now)
 		for i, account := range accounts {
-			fmt.Println(formatSavedAuthAccountRow(i+1, account, emailWidth, showUsage))
+			fmt.Println(formatSavedAuthAccountRow(i+1, account, emailWidth, sessionWidth, showUsage, now))
 		}
 		return nil
 	case "load":
@@ -152,7 +155,25 @@ func maxSavedAuthEmailWidth(accounts []SavedAuthAccount) int {
 	return maxWidth
 }
 
-func formatSavedAuthAccountRow(index int, account SavedAuthAccount, emailWidth int, showUsage bool) string {
+func maxSavedAuthSessionUsageWidth(accounts []SavedAuthAccount, now time.Time) int {
+	maxWidth := 0
+	for _, account := range accounts {
+		parts := FormatCodexUsagePartsAt(account.Usage, account.UsageError, now)
+		if len(parts) > 1 && len(parts[0]) > maxWidth {
+			maxWidth = len(parts[0])
+		}
+	}
+
+	return maxWidth
+}
+
+func formatSavedAuthAccountRow(
+	index int,
+	account SavedAuthAccount,
+	emailWidth int,
+	sessionWidth int,
+	showUsage bool,
+	now time.Time) string {
 	activeMarker := "_"
 	if account.IsActive {
 		activeMarker = "*"
@@ -163,12 +184,15 @@ func formatSavedAuthAccountRow(index int, account SavedAuthAccount, emailWidth i
 	}
 
 	line := fmt.Sprintf("[%s] %d. %-*s", activeMarker, index, emailWidth, account.Email)
-	usage := FormatCodexUsage(account.Usage, account.UsageError)
-	if usage != "" {
-		line += " | " + usage
+	parts := FormatCodexUsagePartsAt(account.Usage, account.UsageError, now)
+	if len(parts) == 0 {
+		return line
+	}
+	if len(parts) == 1 || sessionWidth == 0 {
+		return line + " | " + parts[0]
 	}
 
-	return line
+	return line + fmt.Sprintf(" | %-*s | %s", sessionWidth, parts[0], parts[1])
 }
 
 func parseLoadArgs(args []string) (int, bool, error) {
