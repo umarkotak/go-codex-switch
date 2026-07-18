@@ -72,10 +72,74 @@ func TestCodexUsageClientFetchUsage(t *testing.T) {
 	}
 }
 
+func TestCodexUsageClientFetchResetCredits(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != defaultCodexResetCreditsEndpoint {
+			t.Fatalf("URL = %q, want %q", r.URL, defaultCodexResetCreditsEndpoint)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer access" {
+			t.Fatalf("Authorization = %q, want %q", got, "Bearer access")
+		}
+		if got := r.Header.Get("ChatGPT-Account-ID"); got != "account" {
+			t.Fatalf("ChatGPT-Account-ID = %q, want %q", got, "account")
+		}
+		if got := r.Header.Get("OpenAI-Beta"); got != "codex-1" {
+			t.Fatalf("OpenAI-Beta = %q, want %q", got, "codex-1")
+		}
+		if got := r.Header.Get("originator"); got != "Codex Desktop" {
+			t.Fatalf("originator = %q, want %q", got, "Codex Desktop")
+		}
+
+		return jsonResponse(http.StatusOK, `{
+		  "available_count": 2,
+		  "credits": [
+		    {
+		      "id": "first",
+		      "reset_type": "codex_rate_limits",
+		      "status": "available",
+		      "granted_at": "2026-07-01T00:00:00Z",
+		      "expires_at": "2026-07-20T00:00:00Z"
+		    },
+		    {
+		      "id": "second",
+		      "reset_type": "codex_rate_limits",
+		      "status": "available",
+		      "granted_at": "2026-07-02T00:00:00.123Z",
+		      "expires_at": "2026-07-21T00:00:00.123Z"
+		    }
+		  ]
+		}`), nil
+	})}
+
+	resetCredits, err := CodexUsageClient{HTTPClient: client}.FetchResetCredits(
+		testAuthFile("codingmase@gmail.com"))
+	if err != nil {
+		t.Fatalf("FetchResetCredits returned error: %v", err)
+	}
+	if resetCredits.AvailableCount != 2 || len(resetCredits.Credits) != 2 {
+		t.Fatalf("reset credits = %#v, want two", resetCredits)
+	}
+	if got := resetCredits.Credits[0].ExpiresAt.Format(time.RFC3339); got != "2026-07-20T00:00:00Z" {
+		t.Fatalf("first expiry = %q, want 2026-07-20T00:00:00Z", got)
+	}
+}
+
 func TestListSavedAuthAccountsWithUsageKeepsPerAccountFailuresNonFatal(t *testing.T) {
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		switch r.Header.Get("Authorization") {
 		case "Bearer access":
+			if r.URL.String() == defaultCodexResetCreditsEndpoint {
+				return jsonResponse(http.StatusOK, `{
+				  "available_count": 1,
+				  "credits": [{
+				    "id": "reset",
+				    "reset_type": "codex_rate_limits",
+				    "status": "available",
+				    "granted_at": "2026-07-01T00:00:00Z",
+				    "expires_at": "2026-07-20T00:00:00Z"
+				  }]
+				}`), nil
+			}
 			return jsonResponse(http.StatusOK, `{
 			  "plan_type": "plus",
 			  "rate_limit": {
@@ -110,8 +174,35 @@ func TestListSavedAuthAccountsWithUsageKeepsPerAccountFailuresNonFatal(t *testin
 	if accounts[0].Usage == nil || accounts[0].UsageError != "" {
 		t.Fatalf("first account usage/error = %#v/%q, want usage success", accounts[0].Usage, accounts[0].UsageError)
 	}
+	if accounts[0].ResetCredits == nil || len(accounts[0].ResetCredits.Credits) != 1 {
+		t.Fatalf("first account reset credits = %#v, want one", accounts[0].ResetCredits)
+	}
 	if accounts[1].Usage != nil || accounts[1].UsageError == "" {
 		t.Fatalf("second account usage/error = %#v/%q, want usage failure", accounts[1].Usage, accounts[1].UsageError)
+	}
+}
+
+func TestFormatCodexResetCreditsFiltersAndSorts(t *testing.T) {
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	earlier := now.Add(24 * time.Hour)
+	later := now.Add(7 * 24 * time.Hour)
+	expired := now.Add(-time.Hour)
+
+	resetCredits := &CodexResetCreditsResponse{
+		AvailableCount: 99,
+		Credits: []CodexResetCredit{
+			{ID: "later", Status: "available", ExpiresAt: &later},
+			{ID: "redeemed", Status: "redeemed", ExpiresAt: &later},
+			{ID: "expired", Status: "available", ExpiresAt: &expired},
+			{ID: "no-expiry", Status: "available"},
+			{ID: "earlier", Status: "available", ExpiresAt: &earlier},
+		},
+	}
+
+	got := FormatCodexResetCreditsAt(resetCredits, now)
+	want := "3 reset credits (2026-07-19, 2026-07-25, no expiry)"
+	if got != want {
+		t.Fatalf("FormatCodexResetCreditsAt = %q, want %q", got, want)
 	}
 }
 

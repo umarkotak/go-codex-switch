@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -81,15 +82,23 @@ func TestFormatSavedAuthAccountRowWithUsageAlignsSeparator(t *testing.T) {
 			SecondaryWindow: &CodexUsageWindow{UsedPercent: 41, ResetAt: now.Add(4*24*time.Hour + 11*time.Hour).Unix()},
 		},
 	}
+	firstExpiry := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	secondExpiry := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
 	accounts := []SavedAuthAccount{
-		{Email: "codingmase@gmail.com", IsActive: true, Usage: activeUsage},
+		{
+			Email: "codingmase@gmail.com", IsActive: true, Usage: activeUsage,
+			ResetCredits: &CodexResetCreditsResponse{Credits: []CodexResetCredit{
+				{ID: "first", Status: "available", ExpiresAt: &firstExpiry},
+				{ID: "second", Status: "available", ExpiresAt: &secondExpiry},
+			}},
+		},
 		{Email: "seakunsleep@gmail.com", Usage: inactiveUsage},
 	}
 	width := maxSavedAuthEmailWidth(accounts)
 	sessionWidth := maxSavedAuthSessionUsageWidth(accounts, now)
 
 	got := formatSavedAuthAccountRow(1, accounts[0], width, sessionWidth, true, now)
-	want := "[*] 1. codingmase@gmail.com  | session: 88% left (4h 14m) | weekly: 98% left (6d 23h)"
+	want := "[*] 1. codingmase@gmail.com  | session: 88% left (4h 14m) | weekly: 98% left (6d 23h) | 2 reset credits (2026-07-20, 2026-07-27)"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
 	}
@@ -98,6 +107,108 @@ func TestFormatSavedAuthAccountRowWithUsageAlignsSeparator(t *testing.T) {
 	want = "[_] 2. seakunsleep@gmail.com | session: 0% left (2h 38m)  | weekly: 59% left (4d 11h)"
 	if got != want {
 		t.Fatalf("row = %q, want %q", got, want)
+	}
+}
+
+func TestFormatSavedAuthAccountRowWithSingleWindowStillShowsResetCredits(t *testing.T) {
+	now := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	resetAt := now.Add(5*24*time.Hour + 3*time.Hour)
+	expiresAt := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+	account := SavedAuthAccount{
+		Email: "codingmase@gmail.com",
+		Usage: &CodexUsageResponse{RateLimit: CodexRateLimitDetails{
+			PrimaryWindow: &CodexUsageWindow{UsedPercent: 98, ResetAt: resetAt.Unix()},
+		}},
+		ResetCredits: &CodexResetCreditsResponse{Credits: []CodexResetCredit{
+			{ID: "first", Status: "available", ExpiresAt: &expiresAt},
+		}},
+	}
+
+	got := formatSavedAuthAccountRow(1, account, len(account.Email), 0, true, now)
+	want := "[_] 1. codingmase@gmail.com | session: 2% left (5d 3h) | 1 reset credit (2026-07-20)"
+	if got != want {
+		t.Fatalf("row = %q, want %q", got, want)
+	}
+}
+
+func TestSingleWindowRowsAlignResetCreditsColumn(t *testing.T) {
+	now := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	expiresAt := time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC)
+	resetCredits := &CodexResetCreditsResponse{Credits: []CodexResetCredit{
+		{ID: "first", Status: "available", ExpiresAt: &expiresAt},
+	}}
+	accounts := []SavedAuthAccount{
+		{
+			Email: "first@gmail.com",
+			Usage: &CodexUsageResponse{RateLimit: CodexRateLimitDetails{
+				PrimaryWindow: &CodexUsageWindow{UsedPercent: 98, ResetAt: now.Add(5 * 24 * time.Hour).Unix()},
+			}},
+			ResetCredits: resetCredits,
+		},
+		{
+			Email: "second@gmail.com",
+			Usage: &CodexUsageResponse{RateLimit: CodexRateLimitDetails{
+				PrimaryWindow: &CodexUsageWindow{UsedPercent: 6, ResetAt: now.Add(5 * 24 * time.Hour).Unix()},
+			}},
+			ResetCredits: resetCredits,
+		},
+	}
+
+	emailWidth := maxSavedAuthEmailWidth(accounts)
+	sessionWidth := maxSavedAuthSessionUsageWidth(accounts, now)
+	first := formatSavedAuthAccountRow(1, accounts[0], emailWidth, sessionWidth, true, now)
+	second := formatSavedAuthAccountRow(2, accounts[1], emailWidth, sessionWidth, true, now)
+	wantFirst := "[_] 1. first@gmail.com  | session: 2% left (5d)  | 1 reset credit (2026-07-27)"
+	wantSecond := "[_] 2. second@gmail.com | session: 94% left (5d) | 1 reset credit (2026-07-27)"
+	if first != wantFirst {
+		t.Fatalf("first row = %q, want %q", first, wantFirst)
+	}
+	if second != wantSecond {
+		t.Fatalf("second row = %q, want %q", second, wantSecond)
+	}
+}
+
+func TestUsageRowsMarkMaxingRecommendationInAlignedColumn(t *testing.T) {
+	now := time.Date(2026, 7, 18, 0, 0, 0, 0, time.UTC)
+	accounts := []SavedAuthAccount{
+		{
+			Email: "first@gmail.com",
+			Usage: &CodexUsageResponse{RateLimit: CodexRateLimitDetails{PrimaryWindow: &CodexUsageWindow{
+				UsedPercent: 4,
+				ResetAt:     now.Add(4 * time.Hour).Unix(),
+			}}},
+		},
+		{
+			Email: "second@gmail.com",
+			Usage: &CodexUsageResponse{RateLimit: CodexRateLimitDetails{PrimaryWindow: &CodexUsageWindow{
+				UsedPercent: 3,
+				ResetAt:     now.Add(2 * time.Hour).Unix(),
+			}}},
+		},
+		{
+			Email: "third@gmail.com",
+			Usage: &CodexUsageResponse{RateLimit: CodexRateLimitDetails{PrimaryWindow: &CodexUsageWindow{
+				UsedPercent: 10,
+				ResetAt:     now.Add(time.Hour).Unix(),
+			}}},
+		},
+	}
+
+	rows := formatSavedAuthAccountRows(accounts, true, now)
+	if len(rows) != 3 {
+		t.Fatalf("len(rows) = %d, want 3", len(rows))
+	}
+	if !strings.HasSuffix(rows[0], " | -") || !strings.HasSuffix(rows[2], " | -") {
+		t.Fatalf("non-recommended rows = %q / %q, want '-' markers", rows[0], rows[2])
+	}
+	if !strings.HasSuffix(rows[1], " | recommended") {
+		t.Fatalf("recommended row = %q, want recommended marker", rows[1])
+	}
+	separator := strings.LastIndex(rows[0], " | ")
+	for i, row := range rows[1:] {
+		if got := strings.LastIndex(row, " | "); got != separator {
+			t.Fatalf("row %d recommendation separator = %d, want %d", i+2, got, separator)
+		}
 	}
 }
 
@@ -197,5 +308,19 @@ func TestParseNextArgs(t *testing.T) {
 				t.Fatalf("noRestart = %t, want %t", noRestart, tt.wantNoRestart)
 			}
 		})
+	}
+}
+
+func TestParseMaxingArgs(t *testing.T) {
+	noRestart, err := parseMaxingArgs([]string{"--no-restart"})
+	if err != nil {
+		t.Fatalf("parseMaxingArgs returned error: %v", err)
+	}
+	if !noRestart {
+		t.Fatal("noRestart = false, want true")
+	}
+
+	if _, err := parseMaxingArgs([]string{"unexpected"}); err == nil {
+		t.Fatal("parseMaxingArgs returned nil error for unexpected argument")
 	}
 }

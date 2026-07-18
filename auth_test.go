@@ -3,10 +3,14 @@ package main
 import (
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestEmailFromIDToken(t *testing.T) {
@@ -395,6 +399,108 @@ func TestNextSavedAuthDoesNothingWithOneSavedAccount(t *testing.T) {
 	if string(activeAuth) != currentAuth {
 		t.Fatal("active auth should not change when only one saved account exists")
 	}
+}
+
+func TestSelectMaxingAccountPrefersOver95PercentThenEarliestReset(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	accounts := []SavedAuthAccount{
+		maxingTestAccount(4, 96, now),
+		maxingTestAccount(2, 97, now),
+		maxingTestAccount(1, 90, now),
+	}
+
+	index, err := selectMaxingAccountIndex(accounts, now)
+	if err != nil {
+		t.Fatalf("selectMaxingAccountIndex returned error: %v", err)
+	}
+	if index != 1 {
+		t.Fatalf("index = %d, want 1", index)
+	}
+}
+
+func TestSelectMaxingAccountUsesNearestResetWhenNoneExceed95Percent(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	accounts := []SavedAuthAccount{
+		maxingTestAccount(4, 95, now),
+		maxingTestAccount(1, 40, now),
+		maxingTestAccount(2, 90, now),
+	}
+
+	index, err := selectMaxingAccountIndex(accounts, now)
+	if err != nil {
+		t.Fatalf("selectMaxingAccountIndex returned error: %v", err)
+	}
+	if index != 1 {
+		t.Fatalf("index = %d, want 1", index)
+	}
+}
+
+func TestSelectMaxingAccountSkipsUnavailableUsage(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	accounts := []SavedAuthAccount{
+		{UsageError: "unavailable"},
+		{Usage: &CodexUsageResponse{}},
+		maxingTestAccount(-1, 99, now),
+	}
+
+	if _, err := selectMaxingAccountIndex(accounts, now); err == nil {
+		t.Fatal("selectMaxingAccountIndex returned nil error")
+	}
+}
+
+func TestMaxingSavedAuthLoadsSelectedAccount(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	homeDir := t.TempDir()
+	mustWriteAuthFile(t, homeDir, "a@gmail.com")
+
+	aAuth := strings.Replace(testAuthJSON("a@gmail.com"), `"access_token": "access"`, `"access_token": "a-token"`, 1)
+	bAuth := strings.Replace(testAuthJSON("b@gmail.com"), `"access_token": "access"`, `"access_token": "b-token"`, 1)
+	cAuth := strings.Replace(testAuthJSON("c@gmail.com"), `"access_token": "access"`, `"access_token": "c-token"`, 1)
+	mustWriteSavedAuthFile(t, homeDir, "a@gmail.com", aAuth)
+	mustWriteSavedAuthFile(t, homeDir, "b@gmail.com", bAuth)
+	mustWriteSavedAuthFile(t, homeDir, "c@gmail.com", cAuth)
+
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var usedPercent float64
+		var resetAt int64
+		switch request.Header.Get("Authorization") {
+		case "Bearer a-token":
+			usedPercent, resetAt = 4, now.Add(4*time.Hour).Unix()
+		case "Bearer b-token":
+			usedPercent, resetAt = 3, now.Add(2*time.Hour).Unix()
+		case "Bearer c-token":
+			usedPercent, resetAt = 10, now.Add(time.Hour).Unix()
+		default:
+			return jsonResponse(http.StatusUnauthorized, `{}`), nil
+		}
+		body := fmt.Sprintf(`{"rate_limit":{"primary_window":{"used_percent":%g,"reset_at":%d}}}`, usedPercent, resetAt)
+		return jsonResponse(http.StatusOK, body), nil
+	})}
+
+	result, err := MaxingSavedAuth(homeDir, CodexUsageClient{HTTPClient: client}, now)
+	if err != nil {
+		t.Fatalf("MaxingSavedAuth returned error: %v", err)
+	}
+	if !result.Loaded || result.Email != "b@gmail.com" {
+		t.Fatalf("result = %#v, want loaded b@gmail.com", result)
+	}
+
+	activeAuth, err := os.ReadFile(filepath.Join(homeDir, codexDirName, authFileName))
+	if err != nil {
+		t.Fatalf("read active auth: %v", err)
+	}
+	if string(activeAuth) != bAuth {
+		t.Fatal("active auth was not replaced with the selected account")
+	}
+}
+
+func maxingTestAccount(resetHours int, remaining float64, now time.Time) SavedAuthAccount {
+	return SavedAuthAccount{Usage: &CodexUsageResponse{RateLimit: CodexRateLimitDetails{
+		PrimaryWindow: &CodexUsageWindow{
+			UsedPercent: 100 - remaining,
+			ResetAt:     now.Add(time.Duration(resetHours) * time.Hour).Unix(),
+		},
+	}}}
 }
 
 func mustWriteAuthFile(t *testing.T, homeDir, email string) string {

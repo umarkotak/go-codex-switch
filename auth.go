@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -56,10 +57,11 @@ type LogoutResult struct {
 }
 
 type SavedAuthAccount struct {
-	Email      string
-	IsActive   bool
-	Usage      *CodexUsageResponse
-	UsageError string
+	Email        string
+	IsActive     bool
+	Usage        *CodexUsageResponse
+	UsageError   string
+	ResetCredits *CodexResetCreditsResponse
 }
 
 func SaveAuthFromHome() (SaveResult, error) {
@@ -190,6 +192,92 @@ func NextSavedAuth(homeDir string) (LoadResult, error) {
 	return LoadSavedAuth(homeDir, 1)
 }
 
+func MaxingSavedAuthFromHome() (LoadResult, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return LoadResult{}, fmt.Errorf("find home directory: %w", err)
+	}
+
+	return MaxingSavedAuth(homeDir, DefaultCodexUsageClient(), time.Now())
+}
+
+func MaxingSavedAuth(homeDir string, usageClient CodexUsageClient, now time.Time) (LoadResult, error) {
+	accounts, err := ListSavedAuthAccounts(homeDir)
+	if err != nil {
+		return LoadResult{}, err
+	}
+	if len(accounts) == 0 {
+		return LoadResult{}, errors.New("no saved auth accounts")
+	}
+
+	for i := range accounts {
+		authFile, _, err := ReadAuthFile(savedAuthPath(homeDir, accounts[i].Email))
+		if err != nil {
+			accounts[i].UsageError = err.Error()
+			continue
+		}
+
+		usage, err := usageClient.FetchUsage(authFile)
+		if err != nil {
+			accounts[i].UsageError = err.Error()
+			continue
+		}
+		accounts[i].Usage = &usage
+	}
+
+	index, err := selectMaxingAccountIndex(accounts, now)
+	if err != nil {
+		return LoadResult{}, err
+	}
+	return LoadSavedAuth(homeDir, index+1)
+}
+
+func selectMaxingAccountIndex(accounts []SavedAuthAccount, now time.Time) (int, error) {
+	type candidate struct {
+		index     int
+		remaining float64
+		resetsAt  time.Time
+	}
+
+	candidates := make([]candidate, 0, len(accounts))
+	for i, account := range accounts {
+		if account.UsageError != "" || account.Usage == nil || account.Usage.RateLimit.PrimaryWindow == nil {
+			continue
+		}
+		window := account.Usage.RateLimit.PrimaryWindow
+		resetsAt := time.Unix(window.ResetAt, 0)
+		if window.ResetAt <= 0 || !resetsAt.After(now) {
+			continue
+		}
+		candidates = append(candidates, candidate{
+			index:     i,
+			remaining: max(0, 100-window.UsedPercent),
+			resetsAt:  resetsAt,
+		})
+	}
+	if len(candidates) == 0 {
+		return 0, errors.New("no saved auth accounts have usable usage data")
+	}
+
+	preferred := make([]candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.remaining > 95 {
+			preferred = append(preferred, candidate)
+		}
+	}
+	if len(preferred) == 0 {
+		preferred = candidates
+	}
+
+	best := preferred[0]
+	for _, candidate := range preferred[1:] {
+		if candidate.resetsAt.Before(best.resetsAt) {
+			best = candidate
+		}
+	}
+	return best.index, nil
+}
+
 func LoadSavedAuth(homeDir string, index int) (LoadResult, error) {
 	if index < 1 {
 		return LoadResult{}, fmt.Errorf("account number must be 1 or greater")
@@ -283,6 +371,12 @@ func ListSavedAuthAccountsWithUsage(homeDir string, usageClient CodexUsageClient
 		}
 
 		accounts[i].Usage = &usage
+
+		resetCredits, err := usageClient.FetchResetCredits(authFile)
+		if err != nil {
+			continue
+		}
+		accounts[i].ResetCredits = &resetCredits
 	}
 
 	return accounts, nil

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -49,11 +50,8 @@ func run(args []string) error {
 			return err
 		}
 
-		emailWidth := maxSavedAuthEmailWidth(accounts)
-		now := time.Now()
-		sessionWidth := maxSavedAuthSessionUsageWidth(accounts, now)
-		for i, account := range accounts {
-			fmt.Println(formatSavedAuthAccountRow(i+1, account, emailWidth, sessionWidth, showUsage, now))
+		for _, row := range formatSavedAuthAccountRows(accounts, showUsage, time.Now()) {
+			fmt.Println(row)
 		}
 		return nil
 	case "load":
@@ -92,6 +90,28 @@ func run(args []string) error {
 
 		if !result.Loaded {
 			fmt.Println("nothing to switch")
+			return nil
+		}
+
+		fmt.Printf("loaded %s\n", result.Email)
+		if !noRestart {
+			if err := RestartCodexApp(); err != nil {
+				return err
+			}
+		}
+		return nil
+	case "maxing":
+		noRestart, err := parseMaxingArgs(args[1:])
+		if err != nil {
+			return err
+		}
+
+		result, err := MaxingSavedAuthFromHome()
+		if err != nil {
+			return err
+		}
+		if result.AlreadyActive {
+			fmt.Printf("%s is already optimal\n", result.Email)
 			return nil
 		}
 
@@ -159,12 +179,50 @@ func maxSavedAuthSessionUsageWidth(accounts []SavedAuthAccount, now time.Time) i
 	maxWidth := 0
 	for _, account := range accounts {
 		parts := FormatCodexUsagePartsAt(account.Usage, account.UsageError, now)
-		if len(parts) > 1 && len(parts[0]) > maxWidth {
+		if len(parts) > 0 && len(parts[0]) > maxWidth {
 			maxWidth = len(parts[0])
 		}
 	}
 
 	return maxWidth
+}
+
+func formatSavedAuthAccountRows(accounts []SavedAuthAccount, showUsage bool, now time.Time) []string {
+	emailWidth := maxSavedAuthEmailWidth(accounts)
+	sessionWidth := maxSavedAuthSessionUsageWidth(accounts, now)
+	rows := make([]string, 0, len(accounts))
+	for i, account := range accounts {
+		rows = append(rows, formatSavedAuthAccountRow(
+			i+1,
+			account,
+			emailWidth,
+			sessionWidth,
+			showUsage,
+			now))
+	}
+	if !showUsage {
+		return rows
+	}
+
+	recommendedIndex, err := selectMaxingAccountIndex(accounts, now)
+	if err != nil {
+		return rows
+	}
+	rowWidth := 0
+	for _, row := range rows {
+		if len(row) > rowWidth {
+			rowWidth = len(row)
+		}
+	}
+	for i, row := range rows {
+		label := "-"
+		if i == recommendedIndex {
+			label = "recommended"
+		}
+		rows[i] = fmt.Sprintf("%-*s | %s", rowWidth, row, label)
+	}
+
+	return rows
 }
 
 func formatSavedAuthAccountRow(
@@ -185,14 +243,20 @@ func formatSavedAuthAccountRow(
 
 	line := fmt.Sprintf("[%s] %d. %-*s", activeMarker, index, emailWidth, account.Email)
 	parts := FormatCodexUsagePartsAt(account.Usage, account.UsageError, now)
+	if resetCredits := FormatCodexResetCreditsAt(account.ResetCredits, now); resetCredits != "" {
+		parts = append(parts, resetCredits)
+	}
 	if len(parts) == 0 {
 		return line
 	}
-	if len(parts) == 1 || sessionWidth == 0 {
+	if len(parts) == 1 {
 		return line + " | " + parts[0]
 	}
+	if sessionWidth == 0 {
+		return line + " | " + strings.Join(parts, " | ")
+	}
 
-	return line + fmt.Sprintf(" | %-*s | %s", sessionWidth, parts[0], parts[1])
+	return line + fmt.Sprintf(" | %-*s | %s", sessionWidth, parts[0], strings.Join(parts[1:], " | "))
 }
 
 func parseLoadArgs(args []string) (int, bool, error) {
@@ -231,6 +295,14 @@ func parseLoadArgs(args []string) (int, bool, error) {
 }
 
 func parseNextArgs(args []string) (bool, error) {
+	return parseNoRestartArgs("next", args)
+}
+
+func parseMaxingArgs(args []string) (bool, error) {
+	return parseNoRestartArgs("maxing", args)
+}
+
+func parseNoRestartArgs(command string, args []string) (bool, error) {
 	noRestart := false
 
 	for _, arg := range args {
@@ -238,7 +310,7 @@ func parseNextArgs(args []string) (bool, error) {
 		case "--no-restart":
 			noRestart = true
 		default:
-			return false, fmt.Errorf("unknown next argument %q\n\n%w", arg, usageError())
+			return false, fmt.Errorf("unknown %s argument %q\n\n%w", command, arg, usageError())
 		}
 	}
 
@@ -246,5 +318,5 @@ func parseNextArgs(args []string) (bool, error) {
 }
 
 func usage() string {
-	return "usage: go-codex-switch <command>\n\ncommands:\n  save                  save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                    list saved auth files\n  ls --usage            list saved auth files with Codex usage\n  load <n>              load a saved auth file by number from ls\n  load <n> --no-restart load without restarting Codex\n  next                  load the next saved auth account\n  next --no-restart     load next without restarting Codex\n  logout                save current auth, delete ~/.codex/auth.json, and restart Codex"
+	return "usage: go-codex-switch <command>\n\ncommands:\n  save                     save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                       list saved auth files\n  ls --usage               list saved auth files with Codex usage\n  load <n>                 load a saved auth file by number from ls\n  load <n> --no-restart    load without restarting Codex\n  next                     load the next saved auth account\n  next --no-restart        load next without restarting Codex\n  maxing                   load the account with the best available usage\n  maxing --no-restart      load the best account without restarting Codex\n  logout                   save current auth, delete ~/.codex/auth.json, and restart Codex"
 }
