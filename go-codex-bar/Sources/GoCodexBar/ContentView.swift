@@ -11,12 +11,8 @@ struct ContentView: View {
             self.header
             Divider()
             self.accountList
-            Divider()
-            self.actionBar
-            Divider()
-            self.footer
         }
-        .frame(width: 430)
+        .frame(width: 430, height: 660)
         .background(.ultraThinMaterial)
         .task {
             if self.model.accounts.isEmpty {
@@ -42,41 +38,82 @@ struct ContentView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 8) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(LinearGradient(
                         colors: [.indigo, .cyan],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing))
                 Image(systemName: "bolt.horizontal.fill")
-                    .font(.system(size: 17, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white)
             }
-            .frame(width: 38, height: 38)
+            .frame(width: 28, height: 28)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Go Codex Bar")
-                    .font(.headline)
-                Text(self.model.activeEmail ?? "No active saved account")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+            Text("Go Codex Bar")
+                .font(.headline)
+                .lineLimit(1)
             Spacer()
-            if self.model.isRefreshing {
-                ProgressView().controlSize(.small)
-            } else {
-                Button {
-                    Task { await self.model.refresh() }
-                } label: {
+
+            Button {
+                Task { await self.model.next() }
+            } label: {
+                Label("Next", systemImage: "arrow.right.circle")
+            }
+            .disabled(self.model.accounts.isEmpty || self.model.busyEmail != nil)
+
+            Button {
+                Task { await self.model.maxing() }
+            } label: {
+                Label("Maxing", systemImage: "sparkles")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(self.model.recommendedEmail == nil || self.model.busyEmail != nil)
+
+            Button {
+                Task { await self.model.refresh() }
+            } label: {
+                if self.model.isRefreshing {
+                    ProgressView()
+                        .controlSize(.mini)
+                } else {
                     Image(systemName: "arrow.clockwise")
                 }
-                .buttonStyle(.borderless)
-                .help("Refresh usage")
             }
+            .buttonStyle(.borderless)
+            .disabled(self.model.isRefreshing)
+            .help("Refresh usage")
+
+            Menu {
+                Button("Save Current", systemImage: "square.and.arrow.down") {
+                    Task { await self.model.saveCurrent() }
+                }
+                Button("Restart Codex", systemImage: "arrow.clockwise.circle") {
+                    Task { await self.model.restartCodex() }
+                }
+                Button("Open Saved Accounts", systemImage: "folder") {
+                    self.model.openSavedAccountsFolder()
+                }
+                Divider()
+                Toggle("Restart after switching", isOn: self.$restartAfterSwitch)
+                Divider()
+                Button("Log Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
+                    self.confirmsLogout = true
+                }
+                Divider()
+                Button("Quit Go Codex Bar", systemImage: "power", role: .destructive) {
+                    NSApplication.shared.terminate(nil)
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
         }
-        .padding(14)
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
@@ -96,85 +133,38 @@ struct ContentView: View {
                 }
                 .buttonStyle(.borderedProminent)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(30)
         } else {
-            ScrollView {
-                LazyVStack(spacing: 8) {
-                    ForEach(self.model.accounts) { account in
-                        AccountCard(
-                            account: account,
-                            isRecommended: account.email == self.model.recommendedEmail,
-                            isBusy: account.email == self.model.busyEmail)
-                        {
-                            Task { await self.model.switchTo(email: account.email) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(self.sortedAccounts) { account in
+                            AccountCard(
+                                account: account,
+                                isRecommended: account.email == self.model.recommendedEmail,
+                                isBusy: account.email == self.model.busyEmail)
+                            {
+                                Task { await self.model.switchTo(email: account.email) }
+                            }
                         }
                     }
+                    .padding(12)
                 }
-                .padding(12)
+                .onChange(of: self.model.activeEmail) { activeEmail in
+                    guard let activeEmail else { return }
+                    withAnimation {
+                        proxy.scrollTo(activeEmail, anchor: .top)
+                    }
+                }
             }
-            .frame(maxHeight: 440)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
-    private var actionBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                Task { await self.model.next() }
-            } label: {
-                Label("Next", systemImage: "arrow.right.circle")
-            }
-            .disabled(self.model.accounts.isEmpty || self.model.busyEmail != nil)
-
-            Button {
-                Task { await self.model.maxing() }
-            } label: {
-                Label("Maxing", systemImage: "sparkles")
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(self.model.recommendedEmail == nil || self.model.busyEmail != nil)
-
-            Spacer()
-
-            Menu {
-                Button("Save Current", systemImage: "square.and.arrow.down") {
-                    Task { await self.model.saveCurrent() }
-                }
-                Button("Restart Codex", systemImage: "arrow.clockwise.circle") {
-                    Task { await self.model.restartCodex() }
-                }
-                Button("Open Saved Accounts", systemImage: "folder") {
-                    self.model.openSavedAccountsFolder()
-                }
-                Divider()
-                Toggle("Restart after switching", isOn: self.$restartAfterSwitch)
-                Divider()
-                Button("Log Out", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) {
-                    self.confirmsLogout = true
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-        }
-        .padding(12)
-    }
-
-    private var footer: some View {
-        HStack {
-            Text(self.model.statusMessage ?? "Maxing prefers >95% remaining, then the nearest reset.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            Spacer()
-            Button("Quit") { NSApplication.shared.terminate(nil) }
-                .buttonStyle(.plain)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+    private var sortedAccounts: [AccountSnapshot] {
+        self.model.accounts.filter(\.isActive)
+            + self.model.accounts.filter { !$0.isActive }
     }
 }
 
