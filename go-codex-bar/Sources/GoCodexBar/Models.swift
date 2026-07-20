@@ -12,6 +12,16 @@ struct AuthFile: Codable, Sendable {
         case tokens
         case lastRefresh = "last_refresh"
     }
+
+    func needsRefresh(at date: Date = Date()) -> Bool {
+        guard let lastRefresh,
+              let refreshedAt = ISO8601DateFormatter.codexDate(from: lastRefresh)
+        else {
+            return true
+        }
+        let eightDays: TimeInterval = 8 * 24 * 60 * 60
+        return date.timeIntervalSince(refreshedAt) > eightDays
+    }
 }
 
 struct AuthTokens: Codable, Sendable {

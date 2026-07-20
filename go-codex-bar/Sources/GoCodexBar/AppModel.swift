@@ -6,8 +6,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var accounts: [AccountSnapshot] = []
     @Published private(set) var recommendedEmail: String?
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isRefreshingExpired = false
     @Published private(set) var busyEmail: String?
     @Published var statusMessage: String?
+    @Published var refreshExpiredMessage: String?
     @Published var errorMessage: String?
 
     private let authStore: AuthStore
@@ -62,6 +64,50 @@ final class AppModel: ObservableObject {
             if values.isEmpty {
                 self.statusMessage = "No saved accounts yet. Sign in to Codex, then choose Save Current."
             }
+        } catch {
+            self.errorMessage = error.localizedDescription
+        }
+    }
+
+    func refreshActiveUsage() async {
+        guard !self.isRefreshing, !self.isRefreshingExpired, self.busyEmail == nil else { return }
+
+        do {
+            guard let active = try self.authStore.currentAccount() else { return }
+            guard active.email == self.activeEmail,
+                  self.accounts.contains(where: { $0.email == active.email })
+            else {
+                await self.refresh()
+                return
+            }
+
+            self.isRefreshing = true
+            defer { self.isRefreshing = false }
+
+            let usageResult: Result<UsageResponse, Error>
+            do {
+                usageResult = .success(try await self.api.fetchUsage(auth: active.auth))
+            } catch {
+                usageResult = .failure(error)
+            }
+
+            guard try self.authStore.currentEmail() == active.email,
+                  let currentIndex = self.accounts.firstIndex(where: { $0.email == active.email })
+            else {
+                self.isRefreshing = false
+                await self.refresh()
+                return
+            }
+            switch usageResult {
+            case let .success(usage):
+                self.accounts[currentIndex].usage = usage
+                self.accounts[currentIndex].usageError = nil
+            case let .failure(error):
+                self.accounts[currentIndex].usageError = error.localizedDescription
+            }
+            self.recommendedEmail = RecommendationEngine.recommendedEmail(
+                accounts: self.accounts,
+                now: Date())
         } catch {
             self.errorMessage = error.localizedDescription
         }
@@ -131,6 +177,47 @@ final class AppModel: ObservableObject {
         await self.perform {
             try await CodexRestarter.restart()
             self.statusMessage = "Codex restarted"
+        }
+    }
+
+    func refreshExpired() async {
+        guard !self.isRefreshingExpired, !self.isRefreshing, self.busyEmail == nil else { return }
+        self.isRefreshingExpired = true
+        defer { self.isRefreshingExpired = false }
+
+        do {
+            try self.authStore.syncActiveAccountIfSaved()
+            let accounts = try self.authStore.listAccounts()
+            let expired = accounts.filter { $0.auth.needsRefresh() }
+            guard !expired.isEmpty else {
+                self.refreshExpiredMessage = "All saved accounts already have fresh credentials."
+                return
+            }
+
+            var refreshedEmails: [String] = []
+            var failures: [String] = []
+            for account in expired {
+                do {
+                    let refreshed = try await self.api.refreshAuth(account.auth)
+                    try self.authStore.saveRefreshed(
+                        refreshed,
+                        for: account.email,
+                        isActive: account.isActive)
+                    refreshedEmails.append(account.email)
+                } catch {
+                    failures.append("\(account.email): \(error.localizedDescription)")
+                }
+            }
+
+            await self.refresh()
+            var lines = ["Refreshed \(refreshedEmails.count) of \(expired.count) expired account(s)."]
+            if !failures.isEmpty {
+                lines.append("")
+                lines.append(contentsOf: failures)
+            }
+            self.refreshExpiredMessage = lines.joined(separator: "\n")
+        } catch {
+            self.errorMessage = error.localizedDescription
         }
     }
 

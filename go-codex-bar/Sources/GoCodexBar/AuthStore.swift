@@ -89,6 +89,13 @@ struct AuthStore: Sendable {
         return try Self.email(fromIDToken: auth.tokens.idToken)
     }
 
+    func currentAccount() throws -> StoredAccount? {
+        guard FileManager.default.fileExists(atPath: self.authURL.path) else { return nil }
+        let auth = try self.readAuth(at: self.authURL).auth
+        let email = try Self.email(fromIDToken: auth.tokens.idToken)
+        return StoredAccount(email: email, isActive: true, auth: auth)
+    }
+
     func savedEmails() throws -> [String] {
         guard FileManager.default.fileExists(atPath: self.savedDirectory.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(
@@ -101,6 +108,25 @@ struct AuthStore: Sendable {
                 return String(url.lastPathComponent.dropLast(suffix.count))
             }
             .sorted()
+    }
+
+    func syncActiveAccountIfSaved() throws {
+        guard FileManager.default.fileExists(atPath: self.authURL.path) else { return }
+        let current = try self.readAuth(at: self.authURL)
+        let email = try Self.email(fromIDToken: current.auth.tokens.idToken)
+        let savedURL = self.savedURL(for: email)
+        guard FileManager.default.fileExists(atPath: savedURL.path) else { return }
+        try self.write(current.data, to: savedURL)
+    }
+
+    func saveRefreshed(_ auth: AuthFile, for email: String, isActive: Bool) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(auth)
+        try self.write(data, to: self.savedURL(for: email))
+        if isActive {
+            try self.write(data, to: self.authURL)
+        }
     }
 
     private func readAuth(at url: URL) throws -> (auth: AuthFile, data: Data) {

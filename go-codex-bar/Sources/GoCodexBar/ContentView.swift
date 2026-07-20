@@ -14,9 +14,13 @@ struct ContentView: View {
         }
         .frame(width: 430, height: 660)
         .background(.ultraThinMaterial)
-        .task {
-            if self.model.accounts.isEmpty {
-                await self.model.refresh()
+        .onAppear {
+            Task {
+                if self.model.accounts.isEmpty {
+                    await self.model.refresh()
+                } else {
+                    await self.model.refreshActiveUsage()
+                }
             }
         }
         .alert("Log out of Codex?", isPresented: self.$confirmsLogout) {
@@ -34,6 +38,14 @@ struct ContentView: View {
             Button("OK", role: .cancel) { self.model.errorMessage = nil }
         } message: {
             Text(self.model.errorMessage ?? "Unknown error")
+        }
+        .alert("Refresh Expired", isPresented: Binding(
+            get: { self.model.refreshExpiredMessage != nil },
+            set: { if !$0 { self.model.refreshExpiredMessage = nil } }))
+        {
+            Button("OK", role: .cancel) { self.model.refreshExpiredMessage = nil }
+        } message: {
+            Text(self.model.refreshExpiredMessage ?? "Refresh complete.")
         }
     }
 
@@ -61,7 +73,11 @@ struct ContentView: View {
             } label: {
                 Label("Next", systemImage: "arrow.right.circle")
             }
-            .disabled(self.model.accounts.isEmpty || self.model.busyEmail != nil)
+            .disabled(
+                self.model.accounts.isEmpty
+                    || self.model.busyEmail != nil
+                    || self.model.isRefreshing
+                    || self.model.isRefreshingExpired)
 
             Button {
                 Task { await self.model.maxing() }
@@ -69,7 +85,11 @@ struct ContentView: View {
                 Label("Maxing", systemImage: "sparkles")
             }
             .buttonStyle(.borderedProminent)
-            .disabled(self.model.recommendedEmail == nil || self.model.busyEmail != nil)
+            .disabled(
+                self.model.recommendedEmail == nil
+                    || self.model.busyEmail != nil
+                    || self.model.isRefreshing
+                    || self.model.isRefreshingExpired)
 
             Button {
                 Task { await self.model.refresh() }
@@ -82,13 +102,21 @@ struct ContentView: View {
                 }
             }
             .buttonStyle(.borderless)
-            .disabled(self.model.isRefreshing)
+            .disabled(self.model.isRefreshing || self.model.isRefreshingExpired)
             .help("Refresh usage")
 
             Menu {
                 Button("Save Current", systemImage: "square.and.arrow.down") {
                     Task { await self.model.saveCurrent() }
                 }
+                Button("Refresh Expired", systemImage: "key.horizontal") {
+                    Task { await self.model.refreshExpired() }
+                }
+                .disabled(
+                    self.model.accounts.isEmpty
+                        || self.model.isRefreshing
+                        || self.model.isRefreshingExpired
+                        || self.model.busyEmail != nil)
                 Button("Restart Codex", systemImage: "arrow.clockwise.circle") {
                     Task { await self.model.restartCodex() }
                 }
