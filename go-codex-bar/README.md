@@ -6,17 +6,20 @@ A native macOS menu-bar companion for switching between saved Codex accounts and
 
 - Live session and weekly usage with reset countdowns
 - Automatic active-account quota refresh whenever the menu opens
+- Claude Code session and weekly quota from file-backed OAuth credentials
 - Available reset-credit count and individual expiry dates
 - Active and recommended account badges
 - One-click account switching
 - **Next** and usage-aware **Maxing** selection
 - Save the currently signed-in Codex account
-- Refresh and save credentials older than eight days across all saved accounts
+- Refresh and save Codex credentials older than eight days across all saved accounts
 - Optional Codex restart after switching (enabled by default)
 - Restart Codex, log out, refresh, and open the saved-account folder
 - Uses the same `~/.codex/auth.json` and `~/.go-codex-switch/*.auth.json` files as `go-codex-switch`
 
 `Maxing` uses the same policy as the CLI: prefer accounts with more than 95% remaining, choosing the earliest upcoming reset; otherwise choose the nearest upcoming reset.
+
+When Claude Code has a file-backed OAuth session, the bar reads its credentials from `~/.claude/.credentials.json` and displays the five-hour and seven-day quota returned by Anthropic's OAuth usage endpoint. Use **Save Current Claude** to store it under `~/.go-codex-switch/claude/`, then choose a Claude card, **Next Claude**, or **Maxing Claude** to load a saved account. `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR` are respected. Claude's Keychain-only sessions are not switchable this way, because Claude Code owns and may prioritize those credentials.
 
 ## Requirements
 

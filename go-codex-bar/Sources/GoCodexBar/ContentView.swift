@@ -14,13 +14,31 @@ struct ContentView: View {
         }
         .frame(width: 430, height: 660)
         .background(.ultraThinMaterial)
+        .overlay(alignment: .top) {
+            if let message = self.model.statusMessage {
+                Text(message)
+                    .font(.caption)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(3)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .shadow(radius: 5, y: 2)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .onAppear {
             Task {
-                if self.model.accounts.isEmpty {
-                    await self.model.refresh()
-                } else {
-                    await self.model.refreshActiveUsage()
-                }
+                await self.model.refreshOnOpen()
+            }
+        }
+        .onChange(of: self.model.statusMessage) { message in
+            guard let message else { return }
+            Task {
+                try? await Task.sleep(for: .seconds(4))
+                guard self.model.statusMessage == message else { return }
+                self.model.statusMessage = nil
             }
         }
         .alert("Log out of Codex?", isPresented: self.$confirmsLogout) {
@@ -38,14 +56,6 @@ struct ContentView: View {
             Button("OK", role: .cancel) { self.model.errorMessage = nil }
         } message: {
             Text(self.model.errorMessage ?? "Unknown error")
-        }
-        .alert("Refresh Expired", isPresented: Binding(
-            get: { self.model.refreshExpiredMessage != nil },
-            set: { if !$0 { self.model.refreshExpiredMessage = nil } }))
-        {
-            Button("OK", role: .cancel) { self.model.refreshExpiredMessage = nil }
-        } message: {
-            Text(self.model.refreshExpiredMessage ?? "Refresh complete.")
         }
     }
 
@@ -109,6 +119,18 @@ struct ContentView: View {
                 Button("Save Current", systemImage: "square.and.arrow.down") {
                     Task { await self.model.saveCurrent() }
                 }
+                Button("Save Current Claude", systemImage: "sparkles") {
+                    Task { await self.model.saveCurrentClaude() }
+                }
+                Button("Next Claude", systemImage: "arrow.right.circle") {
+                    Task { await self.model.nextClaude() }
+                }
+                .disabled(self.model.claudeAccounts.isEmpty || self.model.busyClaudeEmail != nil)
+                Button("Maxing Claude", systemImage: "sparkles") {
+                    Task { await self.model.maxingClaude() }
+                }
+                .disabled(self.model.claudeRecommendedEmail == nil || self.model.busyClaudeEmail != nil)
+                Divider()
                 Button("Refresh Expired", systemImage: "key.horizontal") {
                     Task { await self.model.refreshExpired() }
                 }
@@ -146,20 +168,23 @@ struct ContentView: View {
 
     @ViewBuilder
     private var accountList: some View {
-        if self.model.accounts.isEmpty {
+        if self.model.accounts.isEmpty && self.model.claudeAccounts.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: "person.crop.circle.badge.plus")
                     .font(.system(size: 32))
                     .foregroundStyle(.secondary)
                 Text("No saved accounts")
                     .font(.headline)
-                Text("Sign in with Codex, then save the current account.")
+                Text("Sign in with Codex or Claude Code, then save the current account.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Save Current") {
                     Task { await self.model.saveCurrent() }
                 }
                 .buttonStyle(.borderedProminent)
+                Button("Save Current Claude") {
+                    Task { await self.model.saveCurrentClaude() }
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(30)
@@ -167,6 +192,15 @@ struct ContentView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 8) {
+                        ForEach(self.sortedClaudeAccounts) { account in
+                            ClaudeCard(
+                                account: account,
+                                isRecommended: account.email == self.model.claudeRecommendedEmail,
+                                isBusy: account.email == self.model.busyClaudeEmail)
+                            {
+                                Task { await self.model.switchClaudeTo(email: account.email) }
+                            }
+                        }
                         ForEach(self.sortedAccounts) { account in
                             AccountCard(
                                 account: account,
@@ -193,6 +227,11 @@ struct ContentView: View {
     private var sortedAccounts: [AccountSnapshot] {
         self.model.accounts.filter(\.isActive)
             + self.model.accounts.filter { !$0.isActive }
+    }
+
+    private var sortedClaudeAccounts: [ClaudeAccountSnapshot] {
+        self.model.claudeAccounts.filter(\.isActive)
+            + self.model.claudeAccounts.filter { !$0.isActive }
     }
 }
 
@@ -272,6 +311,59 @@ private struct AccountCard: View {
     }
 }
 
+private struct ClaudeCard: View {
+    let account: ClaudeAccountSnapshot
+    let isRecommended: Bool
+    let isBusy: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: self.action) {
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 7) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.orange)
+                    Text(self.account.email)
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                        .lineLimit(1)
+                    Spacer()
+                    if self.account.isActive {
+                        Badge(text: "ACTIVE", color: .green)
+                    }
+                    if self.isRecommended {
+                        Badge(text: "RECOMMENDED", color: .orange)
+                    }
+                    if self.isBusy {
+                        ProgressView().controlSize(.mini)
+                    }
+                }
+
+                if let error = self.account.usageError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                } else if let usage = self.account.usage,
+                          let session = usage.fiveHour
+                {
+                    ClaudeUsageLine(title: "Claude session", window: session)
+                    if let weekly = usage.sevenDay {
+                        ClaudeUsageLine(title: "Claude weekly", window: weekly)
+                    }
+                } else {
+                    Text("Claude usage unavailable")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(11)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.08)))
+        }
+        .buttonStyle(.plain)
+        .disabled(self.account.isActive || self.isBusy)
+    }
+}
+
 private struct UsageLine: View {
     let title: String
     let window: UsageWindow
@@ -305,6 +397,50 @@ private struct UsageLine: View {
 
     private var barColor: Color {
         switch self.window.remainingPercent {
+        case 50...: .green
+        case 20...: .orange
+        default: .red
+        }
+    }
+}
+
+private struct ClaudeUsageLine: View {
+    let title: String
+    let window: ClaudeUsageWindow
+
+    var body: some View {
+        if let remaining = self.window.remainingPercent {
+            VStack(spacing: 4) {
+                HStack {
+                    Text(self.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(remaining, specifier: "%.0f")% left")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                    if let reset = self.window.resetDate, reset > Date() {
+                        Text("· \(reset, style: .relative)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.primary.opacity(0.09))
+                        Capsule()
+                            .fill(self.barColor(remaining: remaining))
+                            .frame(width: geometry.size.width * remaining / 100)
+                    }
+                }
+                .frame(height: 5)
+            }
+        } else {
+            EmptyView()
+        }
+    }
+
+    private func barColor(remaining: Double) -> Color {
+        switch remaining {
         case 50...: .green
         case 20...: .orange
         default: .red

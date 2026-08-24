@@ -38,6 +38,86 @@ struct AuthTokens: Codable, Sendable {
     }
 }
 
+struct ClaudeCredentialsFile: Decodable {
+    let claudeAiOauth: ClaudeOAuthCredentials?
+}
+
+struct ClaudeOAuthCredentials: Decodable, Sendable {
+    let accessToken: String
+    let refreshToken: String?
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken
+        case refreshToken
+    }
+}
+
+struct ClaudeUsageResponse: Decodable, Sendable {
+    let fiveHour: ClaudeUsageWindow?
+    let sevenDay: ClaudeUsageWindow?
+
+    enum CodingKeys: String, CodingKey {
+        case fiveHour = "five_hour"
+        case sevenDay = "seven_day"
+    }
+}
+
+struct ClaudeUsageWindow: Decodable, Sendable {
+    let utilization: Double?
+    let resetsAt: String?
+
+    var remainingPercent: Double? {
+        guard let utilization else { return nil }
+        return min(100, max(0, 100 - utilization))
+    }
+
+    var resetDate: Date? {
+        guard let resetsAt else { return nil }
+        return ISO8601DateFormatter.codexDate(from: resetsAt)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case utilization
+        case resetsAt = "resets_at"
+    }
+}
+
+struct StoredClaudeAccount: Sendable {
+    let email: String
+    let isActive: Bool
+    let credentials: ClaudeOAuthCredentials
+}
+
+struct ClaudeAccountSnapshot: Identifiable, Sendable {
+    var id: String { self.email }
+
+    let email: String
+    var isActive: Bool
+    var usage: ClaudeUsageResponse?
+    var usageError: String?
+}
+
+enum ClaudeRecommendationEngine {
+    static func recommendedEmail(accounts: [ClaudeAccountSnapshot], now: Date) -> String? {
+        let candidates = accounts.compactMap { account -> (email: String, remaining: Double, reset: Date)? in
+            guard account.usageError == nil,
+                  let window = account.usage?.fiveHour,
+                  let remaining = window.remainingPercent,
+                  let reset = window.resetDate,
+                  reset > now
+            else { return nil }
+            return (account.email, remaining, reset)
+        }
+        guard !candidates.isEmpty else { return nil }
+        let over95 = candidates.filter { $0.remaining > 95 }
+        return (over95.isEmpty ? candidates : over95)
+            .min { lhs, rhs in
+                lhs.reset == rhs.reset ? lhs.email < rhs.email : lhs.reset < rhs.reset
+            }?
+            .email
+    }
+}
+
 struct UsageResponse: Decodable, Sendable {
     let planType: String?
     let rateLimit: RateLimitDetails

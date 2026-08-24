@@ -13,7 +13,8 @@ Both interfaces use the same Codex authentication and saved-account files, so ac
 - Log out while preserving the active account for later use
 - Native menu-bar interface with active and recommended account indicators
 - Automatically refresh the active account's quota whenever the menu opens
-- Refresh and save expired OAuth credentials across all saved accounts
+- Refresh and save expired Codex OAuth credentials across all saved accounts
+- Show Claude Code's session and weekly quota from its local OAuth credentials
 
 ## Requirements
 
@@ -105,6 +106,10 @@ The account list shows:
 
 Opening the menu automatically refreshes quota for the current active account. The manual refresh button updates every saved account.
 
+When Claude Code is signed in with a file-backed OAuth credential, Go Codex Bar also shows Claude cards with five-hour session and seven-day quota. Use **Save Current Claude** to save the current session, then select a card, **Next Claude**, or **Maxing Claude** to change the file-backed Claude session. Saved Claude credentials live in `~/.go-codex-switch/claude/`. The app reads the active credential from `~/.claude/.credentials.json`, or the equivalent path selected by `CLAUDE_CONFIG_DIR` or `CLAUDE_SECURESTORAGE_CONFIG_DIR`, and queries Anthropic's OAuth usage endpoint.
+
+Claude's newer Keychain-only sessions are not switchable this way: Claude Code owns those credentials and may ignore a changed file. Use Claude's own account-management tooling for those sessions.
+
 The dropdown includes actions to save the current account, refresh expired credentials, restart Codex, open the saved-account directory, log out, and quit. **Refresh Expired** follows Codex's OAuth refresh policy: credentials with a missing or more-than-eight-day-old `last_refresh` value are refreshed and saved. The live authentication file is also updated when the refreshed account is active.
 
 Install and launch the menu-bar app:
@@ -127,6 +132,8 @@ Uninstalling either interface does not remove saved accounts or Codex authentica
 ```text
 ~/.codex/auth.json                    Active Codex authentication
 ~/.go-codex-switch/*.auth.json       Saved account authentication
+~/.claude/.credentials.json          Claude Code OAuth credentials (when file-backed)
+~/.go-codex-switch/claude/           Saved file-backed Claude credentials
 ~/Applications/Go Codex Bar.app      Installed menu-bar application
 ```
 
