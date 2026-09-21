@@ -9,6 +9,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var recommendedEmail: String?
     @Published private(set) var isRefreshing = false
     @Published private(set) var isRefreshingExpired = false
+    @Published private(set) var refreshingEmail: String?
+    @Published private(set) var refreshingClaudeEmail: String?
     @Published private(set) var busyEmail: String?
     @Published private(set) var busyClaudeEmail: String?
     @Published var statusMessage: String?
@@ -45,7 +47,10 @@ final class AppModel: ObservableObject {
     func refresh() async {
         guard !self.isRefreshing else { return }
         self.isRefreshing = true
-        defer { self.isRefreshing = false }
+        defer {
+            self.isRefreshing = false
+            self.refreshingEmail = nil
+        }
 
         do {
             let stored = try self.authStore.listAccounts()
@@ -70,6 +75,7 @@ final class AppModel: ObservableObject {
             self.accounts = values
             for index in refreshOrder {
                 let account = stored[index]
+                self.refreshingEmail = account.email
                 do {
                     values[index].usage = try await self.api.fetchUsage(auth: account.auth)
                     values[index].usageError = nil
@@ -78,8 +84,8 @@ final class AppModel: ObservableObject {
                 }
                 values[index].resetCredits = try? await self.api.fetchResetCredits(auth: account.auth)
                 self.accounts = values
-                self.recommendedEmail = RecommendationEngine.recommendedEmail(accounts: values, now: Date())
             }
+            self.refreshingEmail = nil
             self.accounts = values
             self.recommendedEmail = RecommendationEngine.recommendedEmail(accounts: values, now: Date())
             await self.refreshClaudeAccounts()
@@ -96,6 +102,7 @@ final class AppModel: ObservableObject {
     }
 
     func refreshClaudeAccounts() async {
+        defer { self.refreshingClaudeEmail = nil }
         do {
             guard let credentials = try self.claudeAuthStore.currentCredentials() else {
                 self.claudeAccounts = []
@@ -123,6 +130,7 @@ final class AppModel: ObservableObject {
             }
             self.claudeAccounts = values
             for index in refreshOrder {
+                self.refreshingClaudeEmail = stored[index].email
                 do {
                     values[index].usage = try await self.claudeAPI.fetchUsage(
                         credentials: stored[index].credentials)
@@ -131,10 +139,8 @@ final class AppModel: ObservableObject {
                     values[index].usageError = error.localizedDescription
                 }
                 self.claudeAccounts = values
-                self.claudeRecommendedEmail = ClaudeRecommendationEngine.recommendedEmail(
-                    accounts: values,
-                    now: Date())
             }
+            self.refreshingClaudeEmail = nil
             self.claudeAccounts = values
             self.claudeRecommendedEmail = ClaudeRecommendationEngine.recommendedEmail(
                 accounts: values,

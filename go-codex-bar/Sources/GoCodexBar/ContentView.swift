@@ -213,7 +213,8 @@ struct ContentView: View {
                             ClaudeCard(
                                 account: account,
                                 isRecommended: account.email == self.model.claudeRecommendedEmail,
-                                isBusy: account.email == self.model.busyClaudeEmail)
+                                isBusy: account.email == self.model.busyClaudeEmail,
+                                isRefreshing: account.email == self.model.refreshingClaudeEmail)
                             {
                                 Task { await self.model.switchClaudeTo(email: account.email) }
                             }
@@ -222,7 +223,8 @@ struct ContentView: View {
                             AccountCard(
                                 account: account,
                                 isRecommended: account.email == self.model.recommendedEmail,
-                                isBusy: account.email == self.model.busyEmail)
+                                isBusy: account.email == self.model.busyEmail,
+                                isRefreshing: account.email == self.model.refreshingEmail)
                             {
                                 Task { await self.model.switchTo(email: account.email) }
                             }
@@ -256,6 +258,7 @@ private struct AccountCard: View {
     let account: AccountSnapshot
     let isRecommended: Bool
     let isBusy: Bool
+    let isRefreshing: Bool
     let action: () -> Void
 
     var body: some View {
@@ -269,11 +272,15 @@ private struct AccountCard: View {
                         .font(.system(.subheadline, design: .rounded, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
-                    if self.account.isActive {
-                        Badge(text: "ACTIVE", color: .green)
-                    }
-                    if self.isRecommended {
-                        Badge(text: "RECOMMENDED", color: .indigo)
+                    if self.isRefreshing {
+                        RefreshingBadge(color: .indigo)
+                    } else {
+                        if self.account.isActive {
+                            Badge(text: "ACTIVE", color: .green)
+                        }
+                        if self.isRecommended {
+                            Badge(text: "RECOMMENDED", color: .indigo)
+                        }
                     }
                     if self.isBusy {
                         ProgressView().controlSize(.mini)
@@ -332,6 +339,7 @@ private struct ClaudeCard: View {
     let account: ClaudeAccountSnapshot
     let isRecommended: Bool
     let isBusy: Bool
+    let isRefreshing: Bool
     let action: () -> Void
 
     var body: some View {
@@ -344,11 +352,15 @@ private struct ClaudeCard: View {
                         .font(.system(.subheadline, design: .rounded, weight: .semibold))
                         .lineLimit(1)
                     Spacer()
-                    if self.account.isActive {
-                        Badge(text: "ACTIVE", color: .green)
-                    }
-                    if self.isRecommended {
-                        Badge(text: "RECOMMENDED", color: .orange)
+                    if self.isRefreshing {
+                        RefreshingBadge(color: .orange)
+                    } else {
+                        if self.account.isActive {
+                            Badge(text: "ACTIVE", color: .green)
+                        }
+                        if self.isRecommended {
+                            Badge(text: "RECOMMENDED", color: .orange)
+                        }
                     }
                     if self.isBusy {
                         ProgressView().controlSize(.mini)
@@ -478,5 +490,22 @@ private struct Badge: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(Capsule().fill(self.color.opacity(0.13)))
+    }
+}
+
+private struct RefreshingBadge: View {
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ProgressView()
+                .controlSize(.mini)
+            Text("UPDATING")
+        }
+        .font(.system(size: 8, weight: .bold, design: .rounded))
+        .foregroundStyle(self.color)
+        .padding(.horizontal, 5)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(self.color.opacity(0.13)))
     }
 }
