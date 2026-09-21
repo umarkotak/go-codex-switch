@@ -24,7 +24,7 @@ When Claude Code has a file-backed OAuth session, the bar reads its credentials 
 ## Requirements
 
 - macOS 13 or newer
-- Apple Swift toolchain (Xcode Command Line Tools or Xcode)
+- Full Xcode (the standalone Xcode Command Line Tools package does not include the SwiftUI macro plugins this app requires)
 - Codex installed as `Codex.app`
 
 ## Install
@@ -77,5 +77,12 @@ make bar-package
 ```
 
 `make bar-test` performs a debug compile verification. The included build wrapper selects the SDK compatible with the installed Swift compiler and keeps compiler caches inside the project.
+
+If Xcode is installed but the Command Line Tools are still active, select Xcode and complete its first-launch setup before building:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+```
 
 If macOS blocks the locally built app after it has been copied between machines, build it locally with `make bar-reinstall`. The package is ad-hoc signed and is intended for personal/local installation.

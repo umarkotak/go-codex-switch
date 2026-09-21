@@ -52,24 +52,26 @@ final class AppModel: ObservableObject {
             var values = stored.map {
                 AccountSnapshot(email: $0.email, isActive: $0.isActive, usage: nil, resetCredits: nil, usageError: nil)
             }
-            let api = self.api
-            await withTaskGroup(of: (Int, UsageResponse?, ResetCreditsResponse?, String?).self) { group in
-                for (index, account) in stored.enumerated() {
-                    group.addTask {
-                        async let credits: ResetCreditsResponse? = try? await api.fetchResetCredits(auth: account.auth)
-                        do {
-                            let usage = try await api.fetchUsage(auth: account.auth)
-                            return (index, usage, await credits, nil)
-                        } catch {
-                            return (index, nil, await credits, error.localizedDescription)
-                        }
-                    }
+            // Refresh one account at a time. The active account always goes first so
+            // opening the panel shows the currently selected account as soon as possible.
+            let refreshOrder = stored.indices.sorted { lhs, rhs in
+                if stored[lhs].isActive != stored[rhs].isActive {
+                    return stored[lhs].isActive
                 }
-                for await (index, usage, credits, error) in group {
-                    values[index].usage = usage
-                    values[index].resetCredits = credits
-                    values[index].usageError = error
+                return lhs < rhs
+            }
+            self.accounts = values
+            for index in refreshOrder {
+                let account = stored[index]
+                do {
+                    values[index].usage = try await self.api.fetchUsage(auth: account.auth)
+                    values[index].usageError = nil
+                } catch {
+                    values[index].usageError = error.localizedDescription
                 }
+                values[index].resetCredits = try? await self.api.fetchResetCredits(auth: account.auth)
+                self.accounts = values
+                self.recommendedEmail = RecommendationEngine.recommendedEmail(accounts: values, now: Date())
             }
             self.accounts = values
             self.recommendedEmail = RecommendationEngine.recommendedEmail(accounts: values, now: Date())
@@ -83,12 +85,7 @@ final class AppModel: ObservableObject {
     }
 
     func refreshOnOpen() async {
-        if self.accounts.isEmpty {
-            await self.refresh()
-        } else {
-            await self.refreshActiveUsage()
-            await self.refreshActiveClaudeUsage()
-        }
+        await self.refresh()
     }
 
     func refreshClaudeAccounts() async {
@@ -109,21 +106,26 @@ final class AppModel: ObservableObject {
                     usage: nil,
                     usageError: nil)
             }
-            let api = self.claudeAPI
-            await withTaskGroup(of: (Int, ClaudeUsageResponse?, String?).self) { group in
-                for (index, account) in stored.enumerated() {
-                    group.addTask {
-                        do {
-                            return (index, try await api.fetchUsage(credentials: account.credentials), nil)
-                        } catch {
-                            return (index, nil, error.localizedDescription)
-                        }
-                    }
+            // Match Codex refresh behavior: active first, then each remaining account.
+            let refreshOrder = stored.indices.sorted { lhs, rhs in
+                if stored[lhs].isActive != stored[rhs].isActive {
+                    return stored[lhs].isActive
                 }
-                for await (index, usage, error) in group {
-                    values[index].usage = usage
-                    values[index].usageError = error
+                return lhs < rhs
+            }
+            self.claudeAccounts = values
+            for index in refreshOrder {
+                do {
+                    values[index].usage = try await self.claudeAPI.fetchUsage(
+                        credentials: stored[index].credentials)
+                    values[index].usageError = nil
+                } catch {
+                    values[index].usageError = error.localizedDescription
                 }
+                self.claudeAccounts = values
+                self.claudeRecommendedEmail = ClaudeRecommendationEngine.recommendedEmail(
+                    accounts: values,
+                    now: Date())
             }
             self.claudeAccounts = values
             self.claudeRecommendedEmail = ClaudeRecommendationEngine.recommendedEmail(

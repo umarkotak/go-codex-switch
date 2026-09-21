@@ -20,7 +20,7 @@ Both interfaces use the same Codex authentication and saved-account files, so ac
 
 - macOS with `Codex.app` installed
 - Go 1.22 or newer for the CLI
-- macOS 13 or newer and the Apple Swift toolchain for Go Codex Bar
+- macOS 13 or newer and full Xcode for Go Codex Bar (the standalone Command Line Tools package does not include the SwiftUI macro plugins it requires)
 
 ## CLI installation
 
