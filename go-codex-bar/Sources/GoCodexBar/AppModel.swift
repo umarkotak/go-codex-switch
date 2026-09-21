@@ -49,8 +49,15 @@ final class AppModel: ObservableObject {
 
         do {
             let stored = try self.authStore.listAccounts()
-            var values = stored.map {
-                AccountSnapshot(email: $0.email, isActive: $0.isActive, usage: nil, resetCredits: nil, usageError: nil)
+            let previousByEmail = Dictionary(uniqueKeysWithValues: self.accounts.map { ($0.email, $0) })
+            var values = stored.map { account in
+                let previous = previousByEmail[account.email]
+                return AccountSnapshot(
+                    email: account.email,
+                    isActive: account.isActive,
+                    usage: previous?.usage,
+                    resetCredits: previous?.resetCredits,
+                    usageError: nil)
             }
             // Refresh one account at a time. The active account always goes first so
             // opening the panel shows the currently selected account as soon as possible.
@@ -99,11 +106,12 @@ final class AppModel: ObservableObject {
             let stored = try self.claudeAuthStore.listAccounts(
                 activeEmail: activeEmail,
                 activeToken: credentials.accessToken)
-            var values = stored.map {
+            let previousByEmail = Dictionary(uniqueKeysWithValues: self.claudeAccounts.map { ($0.email, $0) })
+            var values = stored.map { account in
                 ClaudeAccountSnapshot(
-                    email: $0.email,
-                    isActive: $0.isActive,
-                    usage: nil,
+                    email: account.email,
+                    isActive: account.isActive,
+                    usage: previousByEmail[account.email]?.usage,
                     usageError: nil)
             }
             // Match Codex refresh behavior: active first, then each remaining account.

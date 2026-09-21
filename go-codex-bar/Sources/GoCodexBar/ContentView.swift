@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @AppStorage("restartAfterSwitch") private var restartAfterSwitch = true
     @State private var confirmsLogout = false
+    @State private var panelWindowNumber: Int?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,6 +34,9 @@ struct ContentView: View {
                 await self.model.refreshOnOpen()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) {
+            self.refreshWhenPanelOpens(notification: $0)
+        }
         .onChange(of: self.model.statusMessage) { message in
             guard let message else { return }
             Task {
@@ -56,6 +60,19 @@ struct ContentView: View {
             Button("OK", role: .cancel) { self.model.errorMessage = nil }
         } message: {
             Text(self.model.errorMessage ?? "Unknown error")
+        }
+    }
+
+    private func refreshWhenPanelOpens(notification: Notification) {
+        guard let window = notification.object as? NSWindow, window.isVisible else { return }
+
+        if self.panelWindowNumber == nil {
+            self.panelWindowNumber = window.windowNumber
+        }
+        guard self.panelWindowNumber == window.windowNumber else { return }
+
+        Task {
+            await self.model.refreshOnOpen()
         }
     }
 
@@ -389,6 +406,7 @@ private struct UsageLine: View {
                     Capsule()
                         .fill(self.barColor)
                         .frame(width: geometry.size.width * self.window.remainingPercent / 100)
+                        .animation(.easeOut(duration: 0.6), value: self.window.remainingPercent)
                 }
             }
             .frame(height: 5)
@@ -430,6 +448,7 @@ private struct ClaudeUsageLine: View {
                         Capsule()
                             .fill(self.barColor(remaining: remaining))
                             .frame(width: geometry.size.width * remaining / 100)
+                            .animation(.easeOut(duration: 0.6), value: remaining)
                     }
                 }
                 .frame(height: 5)
