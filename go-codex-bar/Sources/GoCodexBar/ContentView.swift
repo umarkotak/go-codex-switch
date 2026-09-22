@@ -10,7 +10,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             self.header
-            if self.model.codexResetStatus != nil {
+            if self.model.codexResetStatus != nil || self.model.codexResetStatusError != nil {
                 Divider()
                 self.resetStatusSection
             }
@@ -192,6 +192,11 @@ struct ContentView: View {
         if let status = self.model.codexResetStatus {
             ResetStatusCard(status: status)
                 .padding(10)
+        } else if let error = self.model.codexResetStatusError {
+            ResetStatusErrorCard(message: error.message, responseCode: error.responseCode) {
+                self.model.dismissCodexResetStatusError()
+            }
+                .padding(10)
         }
     }
 
@@ -316,7 +321,7 @@ private struct ResetStatusCard: View {
 
     private var relativeLastReset: String {
         if let days = self.status.stats.daysSinceLast {
-            switch days {
+            switch Int(days) {
             case ..<0: break
             case 0: return "Today"
             case 1: return "1 day ago"
@@ -334,6 +339,46 @@ private struct ResetStatusCard: View {
         formatter.dateFormat = "MMM d, HH:mm zzz"
         return formatter
     }()
+}
+
+private struct ResetStatusErrorCard: View {
+    let message: String
+    let responseCode: Int?
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("codex-resets unavailable")
+                        .font(.subheadline.weight(.semibold))
+                    if let responseCode {
+                        Text("HTTP \(responseCode)")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(self.message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 8)
+            Link("Open site ↗", destination: URL(string: "https://codex-resets.com/")!)
+                .font(.caption.weight(.semibold))
+            Button(action: self.dismiss) {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.12)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.35), lineWidth: 1))
+    }
 }
 
 private struct ResetStatusRow: View {

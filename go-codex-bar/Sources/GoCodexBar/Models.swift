@@ -209,6 +209,11 @@ struct CodexResetsResponse: Decodable, Sendable {
     let stats: CodexResetStatistics
 }
 
+struct CodexResetStatusError: Sendable {
+    let message: String
+    let responseCode: Int?
+}
+
 struct CodexScheduledReset: Decodable, Sendable {
     let scheduledFor: Date?
     let tweetURL: URL?
@@ -235,7 +240,7 @@ struct CodexScheduledReset: Decodable, Sendable {
 
 struct CodexResetStatistics: Decodable, Sendable {
     let lastResetAt: Date?
-    let daysSinceLast: Int?
+    let daysSinceLast: Double?
 
     enum CodingKeys: String, CodingKey {
         case lastResetAt = "last_reset_at"
@@ -249,7 +254,7 @@ struct CodexResetStatistics: Decodable, Sendable {
         } else {
             self.lastResetAt = nil
         }
-        self.daysSinceLast = try container.decodeIfPresent(Int.self, forKey: .daysSinceLast)
+        self.daysSinceLast = try container.decodeIfPresent(Double.self, forKey: .daysSinceLast)
     }
 }
 

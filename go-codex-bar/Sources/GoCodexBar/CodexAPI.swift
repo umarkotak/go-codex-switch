@@ -25,13 +25,20 @@ enum CodexAPIError: LocalizedError {
 }
 
 enum CodexResetsAPIError: LocalizedError {
-    case invalidResponse
-    case server(Int)
+    case invalidResponse(code: Int?, message: String)
+    case server(code: Int, message: String)
+
+    var responseCode: Int? {
+        switch self {
+        case let .invalidResponse(code, _): code
+        case let .server(code, _): code
+        }
+    }
 
     var errorDescription: String? {
         switch self {
-        case .invalidResponse: "Codex reset service returned an invalid response."
-        case let .server(code): "Codex reset service returned HTTP \(code)."
+        case let .invalidResponse(_, message): message
+        case let .server(_, message): message
         }
     }
 }
@@ -55,16 +62,28 @@ struct CodexResetsAPI: Sendable {
 
         let (data, response) = try await self.session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
-            throw CodexResetsAPIError.invalidResponse
+            throw CodexResetsAPIError.invalidResponse(
+                code: nil,
+                message: "Codex reset service did not return an HTTP response.")
         }
         guard (200...299).contains(http.statusCode) else {
-            throw CodexResetsAPIError.server(http.statusCode)
+            throw CodexResetsAPIError.server(
+                code: http.statusCode,
+                message: Self.responseMessage(data))
         }
         do {
             return try JSONDecoder().decode(CodexResetsResponse.self, from: data)
         } catch {
-            throw CodexResetsAPIError.invalidResponse
+            throw CodexResetsAPIError.invalidResponse(
+                code: http.statusCode,
+                message: error.localizedDescription)
         }
+    }
+
+    private static func responseMessage(_ data: Data) -> String {
+        let message = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "No response message."
+        return String(message.prefix(240))
     }
 }
 

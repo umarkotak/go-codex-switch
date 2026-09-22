@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var claudeRecommendedEmail: String?
     @Published private(set) var recommendedEmail: String?
     @Published private(set) var codexResetStatus: CodexResetsResponse?
+    @Published private(set) var codexResetStatusError: CodexResetStatusError?
     @Published private(set) var isRefreshing = false
     @Published private(set) var isRefreshingCodexResetStatus = false
     @Published private(set) var isRefreshingExpired = false
@@ -115,9 +116,18 @@ final class AppModel: ObservableObject {
 
         do {
             self.codexResetStatus = try await self.codexResetsAPI.fetchStatus()
+            self.codexResetStatusError = nil
         } catch {
             self.codexResetStatus = nil
+            let apiError = error as? CodexResetsAPIError
+            self.codexResetStatusError = CodexResetStatusError(
+                message: error.localizedDescription,
+                responseCode: apiError?.responseCode)
         }
+    }
+
+    func dismissCodexResetStatusError() {
+        self.codexResetStatusError = nil
     }
 
     func refreshClaudeAccounts() async {
