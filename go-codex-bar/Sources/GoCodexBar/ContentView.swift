@@ -274,11 +274,12 @@ private struct ResetStatusCard: View {
             HStack(alignment: .center) {
                 Label("codex-resets", systemImage: "arrow.counterclockwise.circle")
                     .font(.subheadline.weight(.bold))
+                    .foregroundStyle(.orange)
                 Spacer()
                 if let announcementURL = self.status.scheduled?.tweetURL {
                     Link("View announcement ↗", destination: announcementURL)
                         .font(.caption.monospaced())
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(.orange.opacity(0.9))
                 }
             }
 
@@ -298,8 +299,8 @@ private struct ResetStatusCard: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.065)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.16), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.16)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.45), lineWidth: 1))
     }
 
     private func relativeSchedule(_ scheduledFor: Date) -> String {
@@ -352,6 +353,7 @@ private struct ResetStatusRow: View {
             Spacer(minLength: 8)
             Text(self.detail)
                 .font(.caption.weight(.semibold))
+                .foregroundStyle(self.title == "Next reset" ? .orange : .primary)
                 .multilineTextAlignment(.trailing)
         }
     }
