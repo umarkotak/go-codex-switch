@@ -7,7 +7,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var claudeAccounts: [ClaudeAccountSnapshot] = []
     @Published private(set) var claudeRecommendedEmail: String?
     @Published private(set) var recommendedEmail: String?
+    @Published private(set) var codexResetStatus: CodexResetsResponse?
     @Published private(set) var isRefreshing = false
+    @Published private(set) var isRefreshingCodexResetStatus = false
     @Published private(set) var isRefreshingExpired = false
     @Published private(set) var refreshingEmail: String?
     @Published private(set) var refreshingClaudeEmail: String?
@@ -20,17 +22,20 @@ final class AppModel: ObservableObject {
     private let api: CodexAPI
     private let claudeAuthStore: ClaudeAuthStore
     private let claudeAPI: ClaudeAPI
+    private let codexResetsAPI: CodexResetsAPI
 
     init(
         authStore: AuthStore = AuthStore(),
         api: CodexAPI = CodexAPI(),
         claudeAuthStore: ClaudeAuthStore = ClaudeAuthStore(),
-        claudeAPI: ClaudeAPI = ClaudeAPI())
+        claudeAPI: ClaudeAPI = ClaudeAPI(),
+        codexResetsAPI: CodexResetsAPI = CodexResetsAPI())
     {
         self.authStore = authStore
         self.api = api
         self.claudeAuthStore = claudeAuthStore
         self.claudeAPI = claudeAPI
+        self.codexResetsAPI = codexResetsAPI
     }
 
     var activeEmail: String? { self.accounts.first(where: \ .isActive)?.email }
@@ -51,6 +56,8 @@ final class AppModel: ObservableObject {
             self.isRefreshing = false
             self.refreshingEmail = nil
         }
+
+        await self.refreshCodexResetStatus()
 
         do {
             let stored = try self.authStore.listAccounts()
@@ -99,6 +106,19 @@ final class AppModel: ObservableObject {
 
     func refreshOnOpen() async {
         await self.refresh()
+    }
+
+    private func refreshCodexResetStatus() async {
+        guard !self.isRefreshingCodexResetStatus else { return }
+        self.isRefreshingCodexResetStatus = true
+        defer { self.isRefreshingCodexResetStatus = false }
+
+        do {
+            self.codexResetStatus = try await self.codexResetsAPI.fetchStatus()
+        } catch {
+            // Keep the latest successfully fetched status visible if the public
+            // reset service is temporarily unavailable.
+        }
     }
 
     func refreshClaudeAccounts() async {

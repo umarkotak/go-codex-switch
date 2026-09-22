@@ -204,6 +204,55 @@ struct ResetCredit: Decodable, Identifiable, Sendable {
     }
 }
 
+struct CodexResetsResponse: Decodable, Sendable {
+    let scheduled: CodexScheduledReset?
+    let stats: CodexResetStatistics
+}
+
+struct CodexScheduledReset: Decodable, Sendable {
+    let scheduledFor: Date?
+    let tweetURL: URL?
+
+    enum CodingKeys: String, CodingKey {
+        case scheduledFor = "scheduled_for"
+        case tweetURL = "tweet_url"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try? container.decodeIfPresent(String.self, forKey: .scheduledFor) {
+            self.scheduledFor = ISO8601DateFormatter.codexDate(from: value)
+        } else {
+            self.scheduledFor = nil
+        }
+        if let value = try? container.decodeIfPresent(String.self, forKey: .tweetURL) {
+            self.tweetURL = URL(string: value)
+        } else {
+            self.tweetURL = nil
+        }
+    }
+}
+
+struct CodexResetStatistics: Decodable, Sendable {
+    let lastResetAt: Date?
+    let daysSinceLast: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case lastResetAt = "last_reset_at"
+        case daysSinceLast = "days_since_last"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let value = try? container.decodeIfPresent(String.self, forKey: .lastResetAt) {
+            self.lastResetAt = ISO8601DateFormatter.codexDate(from: value)
+        } else {
+            self.lastResetAt = nil
+        }
+        self.daysSinceLast = try container.decodeIfPresent(Int.self, forKey: .daysSinceLast)
+    }
+}
+
 extension ISO8601DateFormatter {
     static func codexDate(from value: String) -> Date? {
         let fractional = ISO8601DateFormatter()

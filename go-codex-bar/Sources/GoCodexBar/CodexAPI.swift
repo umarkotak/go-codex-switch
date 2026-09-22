@@ -24,6 +24,50 @@ enum CodexAPIError: LocalizedError {
     }
 }
 
+enum CodexResetsAPIError: LocalizedError {
+    case invalidResponse
+    case server(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse: "Codex reset service returned an invalid response."
+        case let .server(code): "Codex reset service returned HTTP \(code)."
+        }
+    }
+}
+
+struct CodexResetsAPI: Sendable {
+    private static let endpoint = URL(string: "https://codex-resets.com/api/resets")!
+
+    let session: URLSession
+
+    init(session: URLSession = .shared) {
+        self.session = session
+    }
+
+    func fetchStatus() async throws -> CodexResetsResponse {
+        var request = URLRequest(
+            url: Self.endpoint,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 10)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("GoCodexBar", forHTTPHeaderField: "User-Agent")
+
+        let (data, response) = try await self.session.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw CodexResetsAPIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw CodexResetsAPIError.server(http.statusCode)
+        }
+        do {
+            return try JSONDecoder().decode(CodexResetsResponse.self, from: data)
+        } catch {
+            throw CodexResetsAPIError.invalidResponse
+        }
+    }
+}
+
 struct CodexAPI: Sendable {
     private static let refreshEndpoint = URL(string: "https://auth.openai.com/oauth/token")!
     private static let clientID = "app_EMoamEEZ73f0CkXaXp7hrann"
