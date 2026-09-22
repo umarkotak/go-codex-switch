@@ -288,13 +288,13 @@ private struct ResetStatusCard: View {
             {
                 ResetStatusRow(
                     title: "Next reset",
-                    timestamp: Self.jakartaTimestamp.string(from: scheduledFor),
+                    timestamp: Self.localTimestamp.string(from: scheduledFor),
                     detail: self.relativeSchedule(scheduledFor))
             }
             if let lastResetAt = self.status.stats.lastResetAt {
                 ResetStatusRow(
                     title: "Last reset",
-                    timestamp: Self.jakartaTimestamp.string(from: lastResetAt),
+                    timestamp: Self.localTimestamp.string(from: lastResetAt),
                     detail: self.relativeLastReset)
             }
         }
@@ -327,11 +327,11 @@ private struct ResetStatusCard: View {
         return lastResetAt.formatted(.relative(presentation: .named))
     }
 
-    private static let jakartaTimestamp: DateFormatter = {
+    private static let localTimestamp: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "Asia/Jakarta")
-        formatter.dateFormat = "MMM d, h:mm a 'GMT+7'"
+        formatter.locale = .current
+        formatter.timeZone = .current
+        formatter.dateFormat = "MMM d, HH:mm zzz"
         return formatter
     }()
 }
