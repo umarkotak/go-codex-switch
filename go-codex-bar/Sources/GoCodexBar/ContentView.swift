@@ -10,7 +10,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             self.header
-            if self.model.codexResetStatus != nil || self.model.isRefreshingCodexResetStatus {
+            if self.model.codexResetStatus != nil {
                 Divider()
                 self.resetStatusSection
             }
@@ -190,26 +190,8 @@ struct ContentView: View {
     @ViewBuilder
     private var resetStatusSection: some View {
         if let status = self.model.codexResetStatus {
-            VStack(spacing: 8) {
-                if let scheduled = status.scheduled,
-                   let scheduledFor = scheduled.scheduledFor,
-                   scheduledFor > Date()
-                {
-                    ScheduledResetCard(scheduledFor: scheduledFor, announcementURL: scheduled.tweetURL)
-                }
-                LatestResetCard(stats: status.stats)
-            }
-            .padding(10)
-        } else {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Checking Codex reset status…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            ResetStatusCard(status: status)
+                .padding(10)
         }
     }
 
@@ -284,42 +266,44 @@ struct ContentView: View {
     }
 }
 
-private struct ScheduledResetCard: View {
-    let scheduledFor: Date
-    let announcementURL: URL?
+private struct ResetStatusCard: View {
+    let status: CodexResetsResponse
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center) {
-                Label("Reset scheduled", systemImage: "calendar.badge.clock")
+                Label("codex-resets", systemImage: "arrow.counterclockwise.circle")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.orange)
                 Spacer()
-                if let announcementURL {
+                if let announcementURL = self.status.scheduled?.tweetURL {
                     Link("View announcement ↗", destination: announcementURL)
                         .font(.caption.monospaced())
-                        .foregroundStyle(.orange.opacity(0.9))
+                        .foregroundStyle(.tint)
                 }
             }
 
-            HStack(alignment: .lastTextBaseline, spacing: 10) {
-                Text(self.relativeSchedule)
-                    .font(.system(.title3, design: .rounded, weight: .heavy))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Text(Self.jakartaTimestamp.string(from: self.scheduledFor))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.orange.opacity(0.85))
-                    .lineLimit(1)
+            if let scheduledFor = self.status.scheduled?.scheduledFor,
+               scheduledFor > Date()
+            {
+                ResetStatusRow(
+                    title: "Next reset",
+                    timestamp: Self.jakartaTimestamp.string(from: scheduledFor),
+                    detail: self.relativeSchedule(scheduledFor))
+            }
+            if let lastResetAt = self.status.stats.lastResetAt {
+                ResetStatusRow(
+                    title: "Last reset",
+                    timestamp: Self.jakartaTimestamp.string(from: lastResetAt),
+                    detail: self.relativeLastReset)
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.orange.opacity(0.16)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.orange.opacity(0.45), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.065)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.16), lineWidth: 1))
     }
 
-    private var relativeSchedule: String {
-        let seconds = self.scheduledFor.timeIntervalSinceNow
+    private func relativeSchedule(_ scheduledFor: Date) -> String {
+        let seconds = scheduledFor.timeIntervalSinceNow
         guard seconds > 0 else { return "Reset due now" }
         let hours = max(1, Int((seconds / 3600).rounded(.up)))
         if hours < 48 {
@@ -327,6 +311,19 @@ private struct ScheduledResetCard: View {
         }
         let days = Int((Double(hours) / 24).rounded(.up))
         return "In about \(days) day\(days == 1 ? "" : "s")"
+    }
+
+    private var relativeLastReset: String {
+        if let days = self.status.stats.daysSinceLast {
+            switch days {
+            case ..<0: break
+            case 0: return "Today"
+            case 1: return "1 day ago"
+            default: return "\(days) days ago"
+            }
+        }
+        guard let lastResetAt = self.status.stats.lastResetAt else { return "Last reset unavailable" }
+        return lastResetAt.formatted(.relative(presentation: .named))
     }
 
     private static let jakartaTimestamp: DateFormatter = {
@@ -338,50 +335,26 @@ private struct ScheduledResetCard: View {
     }()
 }
 
-private struct LatestResetCard: View {
-    let stats: CodexResetStatistics
+private struct ResetStatusRow: View {
+    let title: String
+    let timestamp: String
+    let detail: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Label("LATEST CODEX LIMIT RESET", systemImage: "arrow.counterclockwise.circle")
-                .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                .tracking(1.2)
-                .foregroundStyle(.secondary)
-            Text(self.relativeLastReset)
-                .font(.system(.title2, design: .rounded, weight: .heavy))
-                .foregroundStyle(.primary)
-            if let lastResetAt = self.stats.lastResetAt {
-                Text(Self.jakartaTimestamp.string(from: lastResetAt))
-                    .font(.caption.monospacedDigit())
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(self.title)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                Text(self.timestamp)
+                    .font(.caption.monospacedDigit().weight(.medium))
             }
+            Spacer(minLength: 8)
+            Text(self.detail)
+                .font(.caption.weight(.semibold))
+                .multilineTextAlignment(.trailing)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.065)))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.16), lineWidth: 1))
     }
-
-    private var relativeLastReset: String {
-        if let days = self.stats.daysSinceLast {
-            switch days {
-            case ..<0: break
-            case 0: return "Today"
-            case 1: return "1 day ago"
-            default: return "\(days) days ago"
-            }
-        }
-        guard let lastResetAt = self.stats.lastResetAt else { return "Last reset unavailable" }
-        return lastResetAt.formatted(.relative(presentation: .named))
-    }
-
-    private static let jakartaTimestamp: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "Asia/Jakarta")
-        formatter.dateFormat = "MMM d, h:mm a 'GMT+7'"
-        return formatter
-    }()
 }
 
 private struct AccountCard: View {

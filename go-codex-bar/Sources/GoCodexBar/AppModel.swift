@@ -116,8 +116,7 @@ final class AppModel: ObservableObject {
         do {
             self.codexResetStatus = try await self.codexResetsAPI.fetchStatus()
         } catch {
-            // Keep the latest successfully fetched status visible if the public
-            // reset service is temporarily unavailable.
+            self.codexResetStatus = nil
         }
     }
 
