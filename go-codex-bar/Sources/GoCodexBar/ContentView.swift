@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 struct ContentView: View {
@@ -10,6 +11,8 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             self.header
+            Divider()
+            TimerCard()
             if self.model.codexResetStatus != nil || self.model.codexResetStatusError != nil {
                 Divider()
                 self.resetStatusSection
@@ -268,6 +271,106 @@ struct ContentView: View {
     private var sortedClaudeAccounts: [ClaudeAccountSnapshot] {
         self.model.claudeAccounts.filter(\.isActive)
             + self.model.claudeAccounts.filter { !$0.isActive }
+    }
+}
+
+private struct TimerCard: View {
+    @State private var input = "00:00:00"
+    @State private var configuredSeconds = 0
+    @State private var remainingSeconds = 0
+    @State private var isRunning = false
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("Timer", systemImage: "timer")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.orange)
+            TextField("00:00:00", text: self.$input)
+                .textFieldStyle(.roundedBorder)
+                .font(.body.monospacedDigit())
+                .frame(width: 88)
+                .disabled(self.isRunning)
+                .onSubmit(self.play)
+            Text(self.countdownText)
+                .font(.system(.body, design: .monospaced, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(self.isRunning ? .orange : .secondary)
+            Spacer()
+            Button(action: self.play) {
+                Image(systemName: "play.fill")
+            }
+            .disabled(self.isRunning || (self.remainingSeconds == 0 && self.parsedInput == nil))
+            .help("Play")
+            Button(action: { self.isRunning = false }) {
+                Image(systemName: "pause.fill")
+            }
+            .disabled(!self.isRunning)
+            .help("Pause")
+            Button(action: self.reset) {
+                Image(systemName: "arrow.counterclockwise")
+            }
+            .disabled(self.configuredSeconds == 0 && self.remainingSeconds == 0)
+            .help("Reset")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            guard self.isRunning else { return }
+            if self.remainingSeconds > 1 {
+                self.remainingSeconds -= 1
+            } else {
+                self.remainingSeconds = 0
+                self.isRunning = false
+                for second in 0..<3 {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(second)) {
+                        Self.playAlarm()
+                    }
+                }
+            }
+        }
+    }
+
+    private var parsedInput: Int? {
+        let parts = self.input.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              let hours = Int(parts[0]),
+              let minutes = Int(parts[1]),
+              let seconds = Int(parts[2]),
+              hours >= 0,
+              (0..<60).contains(minutes),
+              (0..<60).contains(seconds)
+        else {
+            return nil
+        }
+        return hours * 3_600 + minutes * 60 + seconds
+    }
+
+    private var countdownText: String {
+        Self.timeString(self.remainingSeconds)
+    }
+
+    private func play() {
+        if self.remainingSeconds == 0 {
+            guard let seconds = self.parsedInput, seconds > 0 else { return }
+            self.configuredSeconds = seconds
+            self.remainingSeconds = seconds
+        }
+        self.isRunning = true
+    }
+
+    private func reset() {
+        self.isRunning = false
+        self.remainingSeconds = self.configuredSeconds
+    }
+
+    private static func timeString(_ totalSeconds: Int) -> String {
+        String(format: "%02d:%02d:%02d", totalSeconds / 3_600, (totalSeconds % 3_600) / 60, totalSeconds % 60)
+    }
+
+    private static func playAlarm() {
+        if !(NSSound(named: NSSound.Name("Glass"))?.play() ?? false) {
+            NSSound.beep()
+        }
     }
 }
 
