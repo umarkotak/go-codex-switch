@@ -14,10 +14,13 @@ A native macOS menu-bar companion for switching between saved Codex accounts and
 - Save the currently signed-in Codex account
 - Refresh and save Codex credentials older than eight days across all saved accounts
 - Optional Codex restart after switching (enabled by default)
+- **Stay Awake** toggle to keep the screen on and prevent idle sleep during long AI runs
 - Restart Codex, log out, refresh, and open the saved-account folder
 - Uses the same `~/.codex/auth.json` and `~/.go-codex-switch/*.auth.json` files as `go-codex-switch`
 
 `Maxing` uses the same policy as the CLI: prefer accounts with more than 95% remaining, choosing the earliest upcoming reset; otherwise choose the nearest upcoming reset.
+
+Enable **Stay Awake** below the header before a long AI run. It works while the panel is closed and remembers your choice when Go Codex Bar relaunches. It starts off by default. Turn it off or quit the app to restore normal idle sleep. Keeping the display on uses more battery; closing the lid, choosing Sleep, or a low battery can still put the Mac to sleep. This uses macOS's [display idle sleep assertion](https://developer.apple.com/documentation/iokit/kiopmassertiontypepreventuseridledisplaysleep), without changing your system sleep settings.
 
 When Claude Code has a file-backed OAuth session, the bar reads its credentials from `~/.claude/.credentials.json` and displays the five-hour and seven-day quota returned by Anthropic's OAuth usage endpoint. Use **Save Current Claude** to store it under `~/.go-codex-switch/claude/`, then choose a Claude card, **Next Claude**, or **Maxing Claude** to load a saved account. `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR` are respected. Claude's Keychain-only sessions are not switchable this way, because Claude Code owns and may prioritize those credentials.
 
@@ -76,7 +79,7 @@ make bar-test
 make bar-package
 ```
 
-`make bar-test` performs a debug compile verification. The included build wrapper selects the SDK compatible with the installed Swift compiler and keeps compiler caches inside the project.
+`make bar-test` builds the app and runs the Stay Awake lifecycle test against macOS power assertions. The included build wrapper selects the SDK compatible with the installed Swift compiler and keeps compiler caches inside the project.
 
 If Xcode is installed but the Command Line Tools are still active, select Xcode and complete its first-launch setup before building:
 

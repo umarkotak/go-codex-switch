@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var stayAwake: StayAwakeController
     @AppStorage("restartAfterSwitch") private var restartAfterSwitch = true
     @State private var confirmsLogout = false
     @State private var panelWindowNumber: Int?
@@ -11,6 +12,8 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             self.header
+            Divider()
+            self.stayAwakeSection
             Divider()
             TimerCard()
             if self.model.codexResetStatus != nil || self.model.codexResetStatusError != nil {
@@ -81,6 +84,28 @@ struct ContentView: View {
         Task {
             await self.model.refreshOnOpen()
         }
+    }
+
+    private var stayAwakeSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Label("Stay Awake", systemImage: self.stayAwake.isEnabled ? "sun.max.fill" : "sun.max")
+                Spacer()
+                Toggle("Stay Awake", isOn: Binding(
+                    get: { self.stayAwake.isEnabled },
+                    set: { self.stayAwake.setEnabled($0) }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            .help("Keep the screen on and prevent idle sleep while Go Codex Bar is running.")
+            if let error = self.stayAwake.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
     }
 
     private var header: some View {
@@ -279,6 +304,8 @@ private struct TimerCard: View {
     @State private var configuredSeconds = 0
     @State private var remainingSeconds = 0
     @State private var isRunning = false
+    @State private var alarmSound: NSSound?
+    @State private var alarmGeneration = 0
 
     var body: some View {
         HStack(spacing: 10) {
@@ -309,7 +336,7 @@ private struct TimerCard: View {
             Button(action: self.reset) {
                 Image(systemName: "arrow.counterclockwise")
             }
-            .disabled(self.configuredSeconds == 0 && self.remainingSeconds == 0)
+            .disabled(self.parsedInput == nil && self.configuredSeconds == 0 && self.remainingSeconds == 0)
             .help("Reset")
         }
         .padding(.horizontal, 12)
@@ -321,9 +348,12 @@ private struct TimerCard: View {
             } else {
                 self.remainingSeconds = 0
                 self.isRunning = false
+                self.alarmGeneration += 1
+                let generation = self.alarmGeneration
                 for second in 0..<3 {
                     DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(second)) {
-                        Self.playAlarm()
+                        guard generation == self.alarmGeneration else { return }
+                        self.playAlarm()
                     }
                 }
             }
@@ -351,26 +381,48 @@ private struct TimerCard: View {
 
     private func play() {
         if self.remainingSeconds == 0 {
-            guard let seconds = self.parsedInput, seconds > 0 else { return }
-            self.configuredSeconds = seconds
-            self.remainingSeconds = seconds
+            guard self.setDurationFromInput(), self.remainingSeconds > 0 else { return }
+            self.stopAlarm()
         }
         self.isRunning = true
     }
 
     private func reset() {
+        guard self.setDurationFromInput() else { return }
         self.isRunning = false
-        self.remainingSeconds = self.configuredSeconds
+        self.stopAlarm()
+    }
+
+    @discardableResult
+    private func setDurationFromInput() -> Bool {
+        guard let seconds = self.parsedInput else { return false }
+        self.input = Self.timeString(seconds)
+        self.configuredSeconds = seconds
+        self.remainingSeconds = seconds
+        return true
     }
 
     private static func timeString(_ totalSeconds: Int) -> String {
         String(format: "%02d:%02d:%02d", totalSeconds / 3_600, (totalSeconds % 3_600) / 60, totalSeconds % 60)
     }
 
-    private static func playAlarm() {
-        if !(NSSound(named: NSSound.Name("Glass"))?.play() ?? false) {
-            NSSound.beep()
+    private func playAlarm() {
+        if self.alarmSound == nil,
+           let url = Bundle.main.url(forResource: "alarm", withExtension: "wav")
+        {
+            self.alarmSound = NSSound(contentsOf: url, byReference: true)
         }
+        guard let alarmSound else {
+            NSSound.beep()
+            return
+        }
+        alarmSound.stop()
+        alarmSound.play()
+    }
+
+    private func stopAlarm() {
+        self.alarmGeneration += 1
+        self.alarmSound?.stop()
     }
 }
 

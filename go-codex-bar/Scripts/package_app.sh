@@ -14,6 +14,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cp "$BIN_DIR/GoCodexBar" "$APP_DIR/Contents/MacOS/GoCodexBar"
 cp "$PROJECT_DIR/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
+cp "$PROJECT_DIR/../alarm.wav" "$APP_DIR/Contents/Resources/alarm.wav"
 chmod 755 "$APP_DIR/Contents/MacOS/GoCodexBar"
 codesign --force --deep --sign - "$APP_DIR"
 

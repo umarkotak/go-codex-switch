@@ -11,5 +11,8 @@ let package = Package(
         .executableTarget(
             name: "GoCodexBar",
             path: "Sources/GoCodexBar"),
+        .testTarget(
+            name: "GoCodexBarTests",
+            dependencies: ["GoCodexBar"]),
     ],
     swiftLanguageModes: [.v5])

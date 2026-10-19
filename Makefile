@@ -26,7 +26,7 @@ bar-run:
 	cd $(BAR_DIR) && ./Scripts/swift.sh run GoCodexBar --disable-sandbox
 
 bar-test:
-	cd $(BAR_DIR) && ./Scripts/swift.sh build --disable-sandbox
+	cd $(BAR_DIR) && ./Scripts/swift.sh test --disable-sandbox
 
 bar-build:
 	cd $(BAR_DIR) && ./Scripts/swift.sh build -c release --disable-sandbox
