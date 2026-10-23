@@ -272,7 +272,7 @@ final class AppModel: ObservableObject {
             self.statusMessage = "Loaded \(email)"
             if UserDefaults.standard.object(forKey: "restartAfterSwitch") as? Bool ?? true {
                 try await CodexRestarter.restart()
-                self.statusMessage = "Loaded \(email) and restarted Codex"
+                self.statusMessage = "Loaded \(email) and restarted ChatGPT"
             }
             await self.refresh()
         } catch {
@@ -376,7 +376,7 @@ final class AppModel: ObservableObject {
     func restartCodex() async {
         await self.perform {
             try await CodexRestarter.restart()
-            self.statusMessage = "Codex restarted"
+            self.statusMessage = "ChatGPT restarted"
         }
     }
 

@@ -13,9 +13,10 @@ A native macOS menu-bar companion for switching between saved Codex accounts and
 - **Next** and usage-aware **Maxing** selection
 - Save the currently signed-in Codex account
 - Refresh and save Codex credentials older than eight days across all saved accounts
-- Optional Codex restart after switching (enabled by default)
+- Optional ChatGPT restart after switching (enabled by default)
 - **Stay Awake** toggle to keep the screen on and prevent idle sleep during long AI runs
-- Restart Codex, log out, refresh, and open the saved-account folder
+- **Lid Awake** toggle to disable system sleep so work can continue with the lid closed (administrator approval required)
+- Restart ChatGPT, log out, refresh, and open the saved-account folder
 - Uses the same `~/.codex/auth.json` and `~/.go-codex-switch/*.auth.json` files as `go-codex-switch`
 
 `Maxing` uses the same policy as the CLI: prefer accounts with more than 95% remaining, choosing the earliest upcoming reset; otherwise choose the nearest upcoming reset.
@@ -24,11 +25,13 @@ Enable **Stay Awake** below the header before a long AI run. It works while the 
 
 When Claude Code has a file-backed OAuth session, the bar reads its credentials from `~/.claude/.credentials.json` and displays the five-hour and seven-day quota returned by Anthropic's OAuth usage endpoint. Use **Save Current Claude** to store it under `~/.go-codex-switch/claude/`, then choose a Claude card, **Next Claude**, or **Maxing Claude** to load a saved account. `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR` are respected. Claude's Keychain-only sessions are not switchable this way, because Claude Code owns and may prioritize those credentials.
 
+**Lid Awake**, beside Stay Awake, uses `pmset -a disablesleep 1` to disable system sleep, including lid-close sleep, so processes and network activity can continue. macOS asks for administrator approval when you change it. The toggle reads the actual system setting whenever the panel opens; it does not save a separate app preference. **This is system-wide, affects battery and charger use, and remains active after quitting or uninstalling the app.** Turn Lid Awake off to restore sleep, or run `sudo pmset -a disablesleep 0` in Terminal. It also blocks normal system sleep, rather than only lid-close sleep. Keep the laptop ventilated and turn Lid Awake off before putting it in a bag. Closed-lid behavior must be checked on your Mac and macOS version. It cannot guarantee network connectivity or prevent shutdown from battery depletion or overheating.
+
 ## Requirements
 
 - macOS 13 or newer
 - Full Xcode (the standalone Xcode Command Line Tools package does not include the SwiftUI macro plugins this app requires)
-- Codex installed as `Codex.app`
+- ChatGPT installed as `ChatGPT.app` (older `Codex.app` installations also work; restart targets bundle ID `com.openai.codex`)
 
 ## Install
 
@@ -79,7 +82,7 @@ make bar-test
 make bar-package
 ```
 
-`make bar-test` builds the app and runs the Stay Awake lifecycle test against macOS power assertions. The included build wrapper selects the SDK compatible with the installed Swift compiler and keeps compiler caches inside the project.
+`make bar-test` builds the app, runs the Stay Awake lifecycle test against macOS power assertions, and tests Lid Awake authorization/state handling with simulated commands. Tests do not change the system sleep setting. The included build wrapper selects the SDK compatible with the installed Swift compiler and keeps compiler caches inside the project.
 
 If Xcode is installed but the Command Line Tools are still active, select Xcode and complete its first-launch setup before building:
 

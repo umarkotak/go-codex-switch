@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var stayAwake: StayAwakeController
+    @EnvironmentObject private var lidAwake: LidAwakeController
     @AppStorage("restartAfterSwitch") private var restartAfterSwitch = true
     @State private var confirmsLogout = false
     @State private var panelWindowNumber: Int?
@@ -40,6 +41,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            Task { await self.lidAwake.refresh() }
             Task {
                 await self.model.refreshOnOpen()
             }
@@ -61,7 +63,7 @@ struct ContentView: View {
                 Task { await self.model.logout() }
             }
         } message: {
-            Text("The active account will be saved, auth.json will be removed, and Codex will restart.")
+            Text("The active account will be saved, auth.json will be removed, and ChatGPT will restart.")
         }
         .alert("Go Codex Bar", isPresented: Binding(
             get: { self.model.errorMessage != nil },
@@ -81,6 +83,7 @@ struct ContentView: View {
         }
         guard self.panelWindowNumber == window.windowNumber else { return }
 
+        Task { await self.lidAwake.refresh() }
         Task {
             await self.model.refreshOnOpen()
         }
@@ -96,12 +99,41 @@ struct ContentView: View {
                     set: { self.stayAwake.setEnabled($0) }))
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .help("Keep the screen on and prevent idle sleep while Go Codex Bar is running.")
+                Divider().frame(height: 18).padding(.horizontal, 6)
+                Label("Lid Awake", systemImage: "laptopcomputer")
+                Spacer()
+                if self.lidAwake.isBusy {
+                    ProgressView().controlSize(.mini)
+                }
+                Toggle("Lid Awake", isOn: Binding(
+                    get: { self.lidAwake.isEnabled == true },
+                    set: { enabled in Task { await self.lidAwake.setEnabled(enabled) } }))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(self.lidAwake.isBusy || self.lidAwake.isEnabled == nil)
+                    .help("Keep running with the lid closed. Requires administrator approval. Disables system sleep until turned off, even after quitting this app.")
             }
-            .help("Keep the screen on and prevent idle sleep while Go Codex Bar is running.")
+            .font(.caption)
+            .controlSize(.small)
+            if self.lidAwake.isEnabled == true {
+                Text("Lid Awake: system sleep disabled until turned off, even after quitting.")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
             if let error = self.stayAwake.errorMessage {
                 Text(error)
                     .font(.caption)
                     .foregroundStyle(.red)
+            }
+            if let error = self.lidAwake.errorMessage {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                Button("Retry sleep status") {
+                    Task { await self.lidAwake.refresh() }
+                }
+                .font(.caption)
             }
         }
         .padding(.horizontal, 12)
@@ -188,7 +220,7 @@ struct ContentView: View {
                         || self.model.isRefreshing
                         || self.model.isRefreshingExpired
                         || self.model.busyEmail != nil)
-                Button("Restart Codex", systemImage: "arrow.clockwise.circle") {
+                Button("Restart ChatGPT", systemImage: "arrow.clockwise.circle") {
                     Task { await self.model.restartCodex() }
                 }
                 Button("Open Saved Accounts", systemImage: "folder") {
