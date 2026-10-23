@@ -1,75 +1,84 @@
-import Foundation
 import XCTest
 @testable import GoCodexBar
 
+@MainActor
 final class CodexRestarterTests: XCTestCase {
-    func testRestartTargetsBundleIdentifierAcrossRename() async throws {
-        let commands = RestartCommands()
-        try await CodexRestarter.restart(run: { commands.append($0, $1) }, forceQuit: {
-            XCTFail("A successful graceful quit should not force quit")
-        })
-        XCTAssertEqual(commands.values, [
-            ["/usr/bin/osascript", "-e", "quit app id \"com.openai.codex\""],
-            ["/usr/bin/open", "-b", "com.openai.codex"],
-        ])
-    }
-
-    func testGracefulQuitFailureUsesFallbackBeforeReopening() async throws {
-        let commands = RestartCommands()
-        try await CodexRestarter.restart(run: { executable, arguments in
-            commands.append(executable, arguments)
-            if executable == "/usr/bin/osascript" {
-                throw CodexRestarterError.commandFailed("Automation denied")
+    func testWaitsForExitBeforeLaunching() async throws {
+        var running = true
+        var quitting = false
+        var checks = 0
+        var requests: [Bool] = []
+        try await CodexRestarter.restart(requestQuit: { force in
+            requests.append(force)
+            quitting = true
+        }, isRunning: {
+            if quitting {
+                checks += 1
+                if checks == 3 { running = false }
             }
-        }, forceQuit: { commands.append("forceQuit", []) })
-        XCTAssertEqual(commands.values, [
-            ["/usr/bin/osascript", "-e", "quit app id \"com.openai.codex\""],
-            ["forceQuit"],
-            ["/usr/bin/open", "-b", "com.openai.codex"],
-        ])
+            return running
+        }, launch: {
+            XCTAssertFalse(running, "Reopening a running app only activates the existing process")
+            quitting = false
+            running = true
+        })
+        XCTAssertEqual(requests, [false])
+        XCTAssertEqual(checks, 3)
+        XCTAssertTrue(running)
     }
 
-    func testForceQuitFailureDoesNotReopenAnUnchangedProcess() async {
-        let commands = RestartCommands()
+    func testGracefulQuitThatDoesNotExitUsesForceQuit() async throws {
+        var running = true
+        var requests: [Bool] = []
+        try await CodexRestarter.restart(requestQuit: { force in
+            requests.append(force)
+            if force { running = false }
+        }, isRunning: { running }, launch: {
+            XCTAssertFalse(running)
+            running = true
+        }, timeout: .zero)
+        XCTAssertEqual(requests, [false, true])
+        XCTAssertTrue(running)
+    }
+
+    func testRefusesToLaunchWhileOldProcessIsRunning() async {
+        var launched = false
         do {
-            try await CodexRestarter.restart(run: { executable, arguments in
-                commands.append(executable, arguments)
-                throw CodexRestarterError.commandFailed("Automation denied")
-            }, forceQuit: { throw CodexRestarterError.commandFailed("Cannot terminate") })
-            XCTFail("Expected restart to fail")
+            try await CodexRestarter.restart(requestQuit: { _ in }, isRunning: { true }, launch: {
+                launched = true
+            }, timeout: .zero)
+            XCTFail("Expected termination failure")
         } catch {
-            XCTAssertEqual(error.localizedDescription, "Cannot terminate")
+            XCTAssertTrue(error.localizedDescription.contains("did not exit"))
         }
-        XCTAssertEqual(commands.values.count, 1)
+        XCTAssertFalse(launched)
     }
 
     func testLaunchFailureIsReported() async {
         do {
-            try await CodexRestarter.restart(run: { executable, _ in
-                if executable == "/usr/bin/open" {
-                    throw CodexRestarterError.commandFailed("Application not installed")
-                }
-            }, forceQuit: { XCTFail("Unexpected force quit") })
+            try await CodexRestarter.restart(requestQuit: { _ in }, isRunning: { false }, launch: {
+                throw CodexRestarterError.commandFailed("Application not installed")
+            })
             XCTFail("Expected launch failure")
         } catch {
             XCTAssertEqual(error.localizedDescription, "Application not installed")
         }
     }
-}
 
-private final class RestartCommands: @unchecked Sendable {
-    private let lock = NSLock()
-    private var recorded: [[String]] = []
-
-    var values: [[String]] {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        return self.recorded
+    func testSuccessfulOpenCommandWithoutNewProcessIsNotReportedAsRestart() async {
+        do {
+            try await CodexRestarter.restart(requestQuit: { _ in }, isRunning: { false }, launch: {}, timeout: .zero)
+            XCTFail("Expected startup verification failure")
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("did not start"))
+        }
     }
 
-    func append(_ executable: String, _ arguments: [String]) {
-        self.lock.lock()
-        defer { self.lock.unlock() }
-        self.recorded.append([executable] + arguments)
+    func testStartsAppWhenItWasNotRunning() async throws {
+        var running = false
+        try await CodexRestarter.restart(requestQuit: { _ in }, isRunning: { running }, launch: {
+            running = true
+        })
+        XCTAssertTrue(running)
     }
 }
