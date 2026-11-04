@@ -206,11 +206,15 @@ struct ContentView: View {
                 Button("Next Claude", systemImage: "arrow.right.circle") {
                     Task { await self.model.nextClaude() }
                 }
-                .disabled(self.model.claudeAccounts.isEmpty || self.model.busyClaudeEmail != nil)
+                .disabled(
+                    self.model.claudeAccounts.isEmpty || self.model.busyClaudeEmail != nil
+                        || self.model.isClaudeDesktopSession)
                 Button("Maxing Claude", systemImage: "sparkles") {
                     Task { await self.model.maxingClaude() }
                 }
-                .disabled(self.model.claudeRecommendedEmail == nil || self.model.busyClaudeEmail != nil)
+                .disabled(
+                    self.model.claudeRecommendedEmail == nil || self.model.busyClaudeEmail != nil
+                        || self.model.isClaudeDesktopSession)
                 Divider()
                 Button("Refresh Expired", systemImage: "key.horizontal") {
                     Task { await self.model.refreshExpired() }

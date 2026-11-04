@@ -6,6 +6,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var accounts: [AccountSnapshot] = []
     @Published private(set) var claudeAccounts: [ClaudeAccountSnapshot] = []
     @Published private(set) var claudeRecommendedEmail: String?
+    /// True when Claude quota comes from the Claude desktop app session (quota only, not switchable).
+    @Published private(set) var isClaudeDesktopSession = false
     @Published private(set) var recommendedEmail: String?
     @Published private(set) var codexResetStatus: CodexResetsResponse?
     @Published private(set) var codexResetStatusError: CodexResetStatusError?
@@ -23,6 +25,8 @@ final class AppModel: ObservableObject {
     private let api: CodexAPI
     private let claudeAuthStore: ClaudeAuthStore
     private let claudeAPI: ClaudeAPI
+    private let claudeDesktopSession: ClaudeDesktopSessionReader
+    private let claudeWebAPI: ClaudeWebAPI
     private let codexResetsAPI: CodexResetsAPI
 
     init(
@@ -30,14 +34,21 @@ final class AppModel: ObservableObject {
         api: CodexAPI = CodexAPI(),
         claudeAuthStore: ClaudeAuthStore = ClaudeAuthStore(),
         claudeAPI: ClaudeAPI = ClaudeAPI(),
+        claudeDesktopSession: ClaudeDesktopSessionReader = ClaudeDesktopSessionReader(),
+        claudeWebAPI: ClaudeWebAPI = ClaudeWebAPI(),
         codexResetsAPI: CodexResetsAPI = CodexResetsAPI())
     {
         self.authStore = authStore
         self.api = api
         self.claudeAuthStore = claudeAuthStore
         self.claudeAPI = claudeAPI
+        self.claudeDesktopSession = claudeDesktopSession
+        self.claudeWebAPI = claudeWebAPI
         self.codexResetsAPI = codexResetsAPI
     }
+
+    static let claudeDesktopQuotaOnlyMessage =
+        "Claude desktop is shown for quota only. Saving and switching needs Claude Code credentials."
 
     var activeEmail: String? { self.accounts.first(where: \ .isActive)?.email }
     var activeClaudeEmail: String? { self.claudeAccounts.first(where: \ .isActive)?.email }
@@ -134,10 +145,10 @@ final class AppModel: ObservableObject {
         defer { self.refreshingClaudeEmail = nil }
         do {
             guard let credentials = try self.claudeAuthStore.currentCredentials() else {
-                self.claudeAccounts = []
-                self.claudeRecommendedEmail = nil
+                await self.refreshClaudeDesktopAccount()
                 return
             }
+            self.isClaudeDesktopSession = false
             let activeEmail = try? await self.claudeAPI.fetchEmail(credentials: credentials)
             let stored = try self.claudeAuthStore.listAccounts(
                 activeEmail: activeEmail,
@@ -177,6 +188,48 @@ final class AppModel: ObservableObject {
         } catch {
             self.errorMessage = error.localizedDescription
         }
+    }
+
+    /// Quota-only fallback for people signed in to the Claude desktop app instead of Claude Code.
+    private func refreshClaudeDesktopAccount() async {
+        defer { self.refreshingClaudeEmail = nil }
+        let sessionKey: String
+        do {
+            sessionKey = try self.claudeDesktopSession.readSessionKey()
+        } catch let error as ClaudeDesktopSessionError {
+            self.isClaudeDesktopSession = false
+            self.claudeAccounts = []
+            self.claudeRecommendedEmail = nil
+            switch error {
+            case .cookieStoreMissing, .noSessionKey:
+                break // Claude desktop is not installed or signed out: nothing to show.
+            default:
+                self.errorMessage = error.localizedDescription
+            }
+            return
+        } catch {
+            self.errorMessage = error.localizedDescription
+            return
+        }
+
+        let previous = self.claudeAccounts.first(where: \.isActive)
+        let fetchedEmail = try? await self.claudeWebAPI.fetchEmail(sessionKey: sessionKey)
+        let email = fetchedEmail ?? previous?.email ?? "Claude desktop"
+        var snapshot = ClaudeAccountSnapshot(
+            email: email,
+            isActive: true,
+            usage: previous?.email == email ? previous?.usage : nil,
+            usageError: nil)
+        self.isClaudeDesktopSession = true
+        self.claudeRecommendedEmail = nil
+        self.claudeAccounts = [snapshot]
+        self.refreshingClaudeEmail = email
+        do {
+            snapshot.usage = try await self.claudeWebAPI.fetchUsage(sessionKey: sessionKey)
+        } catch {
+            snapshot.usageError = error.localizedDescription
+        }
+        self.claudeAccounts = [snapshot]
     }
 
     func refreshActiveClaudeUsage() async {
@@ -303,6 +356,10 @@ final class AppModel: ObservableObject {
     }
 
     func saveCurrentClaude() async {
+        if self.isClaudeDesktopSession {
+            self.statusMessage = Self.claudeDesktopQuotaOnlyMessage
+            return
+        }
         do {
             guard let credentials = try self.claudeAuthStore.currentCredentials() else {
                 self.errorMessage = "Please sign in to Claude Code first."
@@ -321,6 +378,10 @@ final class AppModel: ObservableObject {
     }
 
     func switchClaudeTo(email: String) async {
+        if self.isClaudeDesktopSession {
+            self.statusMessage = Self.claudeDesktopQuotaOnlyMessage
+            return
+        }
         guard self.busyClaudeEmail == nil else { return }
         self.busyClaudeEmail = email
         defer { self.busyClaudeEmail = nil }
@@ -343,6 +404,10 @@ final class AppModel: ObservableObject {
     }
 
     func nextClaude() async {
+        if self.isClaudeDesktopSession {
+            self.statusMessage = Self.claudeDesktopQuotaOnlyMessage
+            return
+        }
         guard !self.claudeAccounts.isEmpty else {
             self.errorMessage = ClaudeAuthStoreError.noSavedAccounts.localizedDescription
             return
@@ -357,6 +422,10 @@ final class AppModel: ObservableObject {
     }
 
     func maxingClaude() async {
+        if self.isClaudeDesktopSession {
+            self.statusMessage = Self.claudeDesktopQuotaOnlyMessage
+            return
+        }
         guard let email = self.claudeRecommendedEmail else {
             self.errorMessage = "No Claude account has usable session quota data."
             return

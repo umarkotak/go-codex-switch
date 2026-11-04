@@ -108,6 +108,8 @@ Opening the menu automatically refreshes quota for the current active account. T
 
 When Claude Code is signed in with a file-backed OAuth credential, Go Codex Bar also shows Claude cards with five-hour session and seven-day quota. Use **Save Current Claude** to save the current session, then select a card, **Next Claude**, or **Maxing Claude** to change the file-backed Claude session. Saved Claude credentials live in `~/.go-codex-switch/claude/`. The app reads the active credential from `~/.claude/.credentials.json`, or the equivalent path selected by `CLAUDE_CONFIG_DIR` or `CLAUDE_SECURESTORAGE_CONFIG_DIR`, and queries Anthropic's OAuth usage endpoint.
 
+If no Claude Code credential file exists, Go Codex Bar falls back to the Claude desktop app and shows its session and weekly quota (quota only: saving and switching are disabled for this source). It reads the `sessionKey` cookie from `~/Library/Application Support/Claude/Network/Cookies`, decrypts it with the `Claude Safe Storage` Keychain item (macOS asks for permission the first time; choose **Always Allow**), and queries `claude.ai/api/organizations/{id}/usage`.
+
 Claude's newer Keychain-only sessions are not switchable this way: Claude Code owns those credentials and may ignore a changed file. Use Claude's own account-management tooling for those sessions.
 
 The dropdown includes actions to save the current account, refresh expired credentials, restart Codex, open the saved-account directory, log out, and quit. **Refresh Expired** follows Codex's OAuth refresh policy: credentials with a missing or more-than-eight-day-old `last_refresh` value are refreshed and saved. The live authentication file is also updated when the refreshed account is active.
