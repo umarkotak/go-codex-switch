@@ -134,6 +134,10 @@ struct AuthStore: Sendable {
         return (try JSONDecoder().decode(AuthFile.self, from: data), data)
     }
 
+    func removeSavedAccount(email: String) throws {
+        try FileManager.default.removeItem(at: self.savedURL(for: email))
+    }
+
     private func savedURL(for email: String) -> URL {
         self.savedDirectory.appendingPathComponent(email + ".auth.json")
     }

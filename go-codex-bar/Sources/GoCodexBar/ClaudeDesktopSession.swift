@@ -44,18 +44,35 @@ struct ClaudeDesktopSessionReader: Sendable {
     let cookieStoreCandidates: [URL]
     let keychainPassword: @Sendable () throws -> Data
 
-    init(
-        homeURL: URL = FileManager.default.homeDirectoryForCurrentUser,
-        keychainPassword: @escaping @Sendable () throws -> Data = ClaudeDesktopSessionReader.readKeychainPassword)
-    {
-        let support = homeURL
+    static func defaultDataDirectory(homeURL: URL = FileManager.default.homeDirectoryForCurrentUser) -> URL {
+        homeURL
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
             .appendingPathComponent("Claude", isDirectory: true)
-        self.cookieStoreCandidates = [
-            support.appendingPathComponent("Network", isDirectory: true).appendingPathComponent("Cookies"),
-            support.appendingPathComponent("Cookies"),
+    }
+
+    /// Chromium keeps cookies in `Network/Cookies` (newer) or `Cookies` (older) under the user data directory.
+    static func cookieStoreURLs(in dataDirectory: URL) -> [URL] {
+        [
+            dataDirectory.appendingPathComponent("Network", isDirectory: true).appendingPathComponent("Cookies"),
+            dataDirectory.appendingPathComponent("Cookies"),
         ]
+    }
+
+    init(
+        homeURL: URL,
+        keychainPassword: @escaping @Sendable () throws -> Data = ClaudeDesktopSessionReader.readKeychainPassword)
+    {
+        self.init(
+            dataDirectory: Self.defaultDataDirectory(homeURL: homeURL),
+            keychainPassword: keychainPassword)
+    }
+
+    init(
+        dataDirectory: URL = ClaudeDesktopSessionReader.defaultDataDirectory(),
+        keychainPassword: @escaping @Sendable () throws -> Data = ClaudeDesktopSessionReader.readKeychainPassword)
+    {
+        self.cookieStoreCandidates = Self.cookieStoreURLs(in: dataDirectory)
         self.keychainPassword = keychainPassword
     }
 

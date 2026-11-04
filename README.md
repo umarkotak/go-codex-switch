@@ -108,7 +108,11 @@ Opening the menu automatically refreshes quota for the current active account. T
 
 When Claude Code is signed in with a file-backed OAuth credential, Go Codex Bar also shows Claude cards with five-hour session and seven-day quota. Use **Save Current Claude** to save the current session, then select a card, **Next Claude**, or **Maxing Claude** to change the file-backed Claude session. Saved Claude credentials live in `~/.go-codex-switch/claude/`. The app reads the active credential from `~/.claude/.credentials.json`, or the equivalent path selected by `CLAUDE_CONFIG_DIR` or `CLAUDE_SECURESTORAGE_CONFIG_DIR`, and queries Anthropic's OAuth usage endpoint.
 
-If no Claude Code credential file exists, Go Codex Bar falls back to the Claude desktop app and shows its session and weekly quota (quota only: saving and switching are disabled for this source). It reads the `sessionKey` cookie from `~/Library/Application Support/Claude/Network/Cookies`, decrypts it with the `Claude Safe Storage` Keychain item (macOS asks for permission the first time; choose **Always Allow**), and queries `claude.ai/api/organizations/{id}/usage`.
+If no Claude Code credential file exists, Go Codex Bar uses the Claude desktop app instead. Each account lives in its own Claude profile folder: the normal `~/Library/Application Support/Claude` folder plus extra ones in `~/.go-codex-switch/claude-profiles/`, each opened with Electron's `--user-data-dir`. The bar reads every profile's `sessionKey` cookie (decrypted with the `Claude Safe Storage` Keychain item; choose **Always Allow** on the first prompt), queries `claude.ai/api/organizations/{id}/usage`, and shows one card per account. A card is **ACTIVE** while that profile's Claude is running.
+
+- **Add Claude Profile** creates a new profile and opens a blank Claude window. Sign in with the emailed code (don't click the emailed link, and quit other Claude windows first if you use Google sign-in), then reopen the menu.
+- Selecting a card, **Next Claude**, or **Maxing Claude** opens that profile's Claude (bringing it forward if it is already running). Other Claude windows are left open; quit them yourself.
+- Always open extra accounts from the bar. Launching Claude from the Dock or Spotlight opens the default profile.
 
 Claude's newer Keychain-only sessions are not switchable this way: Claude Code owns those credentials and may ignore a changed file. Use Claude's own account-management tooling for those sessions.
 
