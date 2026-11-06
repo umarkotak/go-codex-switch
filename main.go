@@ -22,6 +22,37 @@ func run(args []string) error {
 	}
 
 	switch args[0] {
+	case "_sync-projects-after-quit", "_delete-projects-after-quit", "_restore-projects-after-quit":
+		if (args[0] == "_sync-projects-after-quit" && len(args) != 1) ||
+			(args[0] == "_delete-projects-after-quit" && len(args) != 2) ||
+			(args[0] == "_restore-projects-after-quit" && len(args) != 3) {
+			return usageError()
+		}
+		running, err := codexIsRunning()
+		if err != nil {
+			return err
+		}
+		if running {
+			return errors.New("quit Codex before syncing local projects")
+		}
+		if args[0] == "_sync-projects-after-quit" {
+			return syncProjectsForLaunch()
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+		operation, backup := "delete", ""
+		if len(args) == 3 {
+			operation, backup = "restore", args[2]
+		}
+		_, err = changeLocalProjects(home, operation, args[1], backup)
+		return err
+	case "sync-projects":
+		if len(args) != 1 {
+			return usageError()
+		}
+		return RestartCodexApp(true)
 	case "save":
 		if len(args) != 1 {
 			return fmt.Errorf("save does not accept arguments\n\n%w", usageError())
@@ -72,7 +103,7 @@ func run(args []string) error {
 
 		fmt.Printf("loaded %s\n", result.Email)
 		if !noRestart {
-			if err := RestartCodexApp(); err != nil {
+			if err := RestartCodexApp(true); err != nil {
 				return err
 			}
 		}
@@ -95,7 +126,7 @@ func run(args []string) error {
 
 		fmt.Printf("loaded %s\n", result.Email)
 		if !noRestart {
-			if err := RestartCodexApp(); err != nil {
+			if err := RestartCodexApp(true); err != nil {
 				return err
 			}
 		}
@@ -117,7 +148,7 @@ func run(args []string) error {
 
 		fmt.Printf("loaded %s\n", result.Email)
 		if !noRestart {
-			if err := RestartCodexApp(); err != nil {
+			if err := RestartCodexApp(true); err != nil {
 				return err
 			}
 		}
@@ -133,7 +164,7 @@ func run(args []string) error {
 		}
 
 		fmt.Printf("logged out %s\n", result.Email)
-		if err := RestartCodexApp(); err != nil {
+		if err := RestartCodexApp(false); err != nil {
 			return err
 		}
 		return nil
@@ -318,5 +349,5 @@ func parseNoRestartArgs(command string, args []string) (bool, error) {
 }
 
 func usage() string {
-	return "usage: go-codex-switch <command>\n\ncommands:\n  save                     save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                       list saved auth files\n  ls --usage               list saved auth files with Codex usage\n  load <n>                 load a saved auth file by number from ls\n  load <n> --no-restart    load without restarting Codex\n  next                     load the next saved auth account\n  next --no-restart        load next without restarting Codex\n  maxing                   load the account with the best available usage\n  maxing --no-restart      load the best account without restarting Codex\n  logout                   save current auth, delete ~/.codex/auth.json, and restart Codex"
+	return "usage: go-codex-switch <command>\n\ncommands:\n  save                     save ~/.codex/auth.json as ~/.go-codex-switch/<email>.auth.json\n  ls                       list saved auth files\n  ls --usage               list saved auth files with Codex usage\n  load <n>                 load a saved auth file by number from ls\n  load <n> --no-restart    load without restarting Codex\n  next                     load the next saved auth account\n  next --no-restart        load next without restarting Codex\n  maxing                   load the account with the best available usage\n  maxing --no-restart      load the best account without restarting Codex\n  sync-projects            restart Codex and copy the outgoing project list to the incoming account\n  logout                   save current auth, delete ~/.codex/auth.json, and restart Codex"
 }

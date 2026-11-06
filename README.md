@@ -77,8 +77,9 @@ go-codex-switch next
 go-codex-switch maxing
 ```
 
-`load`, `next`, and `maxing` restart Codex after a successful switch. Pass `--no-restart` to any of them to only replace the active authentication file:
+`load`, `next`, and `maxing` restart Codex after a successful switch. The outgoing desktop account's local project list, order, and sidebar states replace the incoming account's, so removing a project carries through on the next switch. Project folders and chats stay on disk. Each change saves a separate snapshot of the destination's previous project state in `~/.go-codex-switch/project-backups`. Matching folders retain their destination project IDs.
 
+Pass `--no-restart` to replace authentication only. Run `go-codex-switch sync-projects` to apply the pending switch and restart Codex while it still has the outgoing account's desktop state:
 ```bash
 go-codex-switch load 2 --no-restart
 go-codex-switch next --no-restart

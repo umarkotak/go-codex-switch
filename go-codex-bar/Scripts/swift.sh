@@ -30,4 +30,9 @@ export CLANG_MODULE_CACHE_PATH="$CACHE_DIR/clang"
 export SWIFTPM_MODULECACHE_OVERRIDE="$CACHE_DIR/clang"
 export XDG_CACHE_HOME="$CACHE_DIR"
 
+if [[ "${1:-}" == run ]]; then
+    export GO_CODEX_SWITCH_HELPER="$CACHE_DIR/go-codex-switch"
+    (cd "$PROJECT_DIR/.." && go build -o "$GO_CODEX_SWITCH_HELPER" .)
+fi
+
 exec swift "$@"

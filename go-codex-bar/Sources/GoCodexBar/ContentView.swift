@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var model: AppModel
@@ -8,6 +9,7 @@ struct ContentView: View {
     @EnvironmentObject private var lidAwake: LidAwakeController
     @AppStorage("restartAfterSwitch") private var restartAfterSwitch = true
     @State private var confirmsLogout = false
+    @State private var projectDeletionEmail: String?
     @State private var panelWindowNumber: Int?
     @FocusState private var timerInputFocused: Bool
 
@@ -62,6 +64,19 @@ struct ContentView: View {
         } message: {
             Text("The active account will be saved, auth.json will be removed, and ChatGPT will restart.")
         }
+        .alert("Delete local projects?", isPresented: Binding(
+            get: { self.projectDeletionEmail != nil },
+            set: { if !$0 { self.projectDeletionEmail = nil } }))
+        {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete Projects", role: .destructive) {
+                if let email = self.projectDeletionEmail {
+                    Task { await self.model.changeCodexProjects(email: email) }
+                }
+            }
+        } message: {
+            Text("Remove all local project entries for \(self.projectDeletionEmail ?? "this account")? A backup is saved first. Project folders and chats stay on disk.")
+        }
         .alert("Go Codex Bar", isPresented: Binding(
             get: { self.model.errorMessage != nil },
             set: { if !$0 { self.model.errorMessage = nil } }))
@@ -69,6 +84,19 @@ struct ContentView: View {
             Button("OK", role: .cancel) { self.model.errorMessage = nil }
         } message: {
             Text(self.model.errorMessage ?? "Unknown error")
+        }
+    }
+
+    private func chooseProjectBackup(email: String) {
+        let panel = NSOpenPanel()
+        panel.title = "Restore Projects for \(email)"
+        panel.message = "Choose a backup for this account. Its current projects will be backed up before restoring."
+        panel.directoryURL = self.model.projectBackupsDirectory
+        panel.allowedContentTypes = [.json]
+        panel.prompt = "Restore"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { await self.model.changeCodexProjects(email: email, backup: url) }
         }
     }
 
@@ -224,6 +252,15 @@ struct ContentView: View {
                                 Task { await self.model.switchTo(email: account.email) }
                             }
                             .contextMenu {
+                                Button("Restore Projects…", systemImage: "arrow.counterclockwise") {
+                                    self.chooseProjectBackup(email: account.email)
+                                }
+                                .disabled(!self.model.canRemoveCodexAccount)
+                                Button("Delete Projects…", systemImage: "folder.badge.minus", role: .destructive) {
+                                    self.projectDeletionEmail = account.email
+                                }
+                                .disabled(!self.model.canRemoveCodexAccount)
+                                Divider()
                                 Button("Remove Saved Account", systemImage: "trash", role: .destructive) {
                                     self.model.removeCodexAccount(email: account.email)
                                 }

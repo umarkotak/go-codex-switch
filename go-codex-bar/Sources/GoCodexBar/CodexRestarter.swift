@@ -30,7 +30,8 @@ enum CodexRestarter {
                 try Self.run("/usr/bin/open", ["-n", "-b", bundleIdentifier])
             }.value
         },
-        timeout: Duration = .seconds(5)) async throws
+        timeout: Duration = .seconds(5),
+        beforeLaunch: () async throws -> Void = {}) async throws
     {
         requestQuit(false)
         if try await !self.waitForState(false, isRunning: isRunning, timeout: timeout) {
@@ -40,10 +41,32 @@ enum CodexRestarter {
             }
         }
 
+        var preparationError: Error?
+        do {
+            try await beforeLaunch()
+        } catch {
+            preparationError = error
+        }
         try await launch()
         guard try await self.waitForState(true, isRunning: isRunning, timeout: timeout) else {
             throw CodexRestarterError.commandFailed("ChatGPT did not start after the restart request.")
         }
+        if let preparationError { throw preparationError }
+    }
+
+    static func syncLocalProjects() async throws {
+        try await projectCommand(["_sync-projects-after-quit"])
+    }
+
+    static func projectCommand(_ arguments: [String]) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            let executable = ProcessInfo.processInfo.environment["GO_CODEX_SWITCH_HELPER"]
+                ?? Bundle.main.url(forAuxiliaryExecutable: "go-codex-switch")?.path
+            guard let executable else {
+                throw CodexRestarterError.commandFailed("The local project sync helper is missing. Rebuild Go Codex Bar.")
+            }
+            try Self.run(executable, arguments)
+        }.value
     }
 
     @MainActor

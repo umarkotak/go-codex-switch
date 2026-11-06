@@ -67,6 +67,12 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
+        async let claude: Void = self.refreshClaudeAccounts()
+        await self.refreshCodexAccounts()
+        await claude
+    }
+
+    private func refreshCodexAccounts() async {
         guard !self.isRefreshing else { return }
         self.isRefreshing = true
         defer {
@@ -112,7 +118,6 @@ final class AppModel: ObservableObject {
             self.refreshingEmail = nil
             self.accounts = values
             self.recommendedEmail = RecommendationEngine.recommendedEmail(accounts: values, now: Date())
-            await self.refreshClaudeAccounts()
             if values.isEmpty {
                 self.statusMessage = "No saved accounts yet. Sign in to Codex, then choose Save Current."
             }
@@ -418,12 +423,12 @@ final class AppModel: ObservableObject {
         await self.perform {
             let email = try self.authStore.saveCurrent()
             self.statusMessage = "Saved \(email)"
-            await self.refresh()
+            await self.refreshCodexAccounts()
         }
     }
 
     func switchTo(email: String) async {
-        guard self.busyEmail == nil else { return }
+        guard self.canRemoveCodexAccount else { return }
         self.busyEmail = email
         defer { self.busyEmail = nil }
         do {
@@ -434,10 +439,10 @@ final class AppModel: ObservableObject {
             }
             self.statusMessage = "Loaded \(email)"
             if UserDefaults.standard.object(forKey: "restartAfterSwitch") as? Bool ?? true {
-                try await CodexRestarter.restart()
+                try await CodexRestarter.restart(beforeLaunch: CodexRestarter.syncLocalProjects)
                 self.statusMessage = "Loaded \(email) and restarted ChatGPT"
             }
-            await self.refresh()
+            await self.refreshCodexAccounts()
         } catch {
             self.errorMessage = error.localizedDescription
         }
@@ -536,18 +541,42 @@ final class AppModel: ObservableObject {
         await self.switchClaudeTo(email: email)
     }
 
+    func changeCodexProjects(email: String, backup: URL? = nil) async {
+        guard self.canRemoveCodexAccount else { return }
+        self.busyEmail = email
+        defer { self.busyEmail = nil }
+        let arguments = backup.map { ["_restore-projects-after-quit", email, $0.path] }
+            ?? ["_delete-projects-after-quit", email]
+        await self.perform {
+            try await CodexRestarter.restart(beforeLaunch: {
+                try await CodexRestarter.projectCommand(arguments)
+            })
+            self.statusMessage = backup == nil ? "Deleted local projects for \(email)" : "Restored local projects for \(email)"
+        }
+    }
+
+    var projectBackupsDirectory: URL {
+        self.authStore.savedDirectory.appendingPathComponent("project-backups", isDirectory: true)
+    }
+
     func logout() async {
+        guard self.canRemoveCodexAccount else { return }
+        self.busyEmail = self.activeEmail ?? "ChatGPT"
+        defer { self.busyEmail = nil }
         await self.perform {
             let email = try self.authStore.logout()
             try await CodexRestarter.restart()
             self.statusMessage = "Logged out \(email)"
-            await self.refresh()
+            await self.refreshCodexAccounts()
         }
     }
 
     func restartCodex() async {
+        guard self.canRemoveCodexAccount else { return }
+        self.busyEmail = self.activeEmail ?? "ChatGPT"
+        defer { self.busyEmail = nil }
         await self.perform {
-            try await CodexRestarter.restart()
+            try await CodexRestarter.restart(beforeLaunch: CodexRestarter.syncLocalProjects)
             self.statusMessage = "ChatGPT restarted"
         }
     }
@@ -581,7 +610,7 @@ final class AppModel: ObservableObject {
                 }
             }
 
-            await self.refresh()
+            await self.refreshCodexAccounts()
             var lines = ["Refreshed \(refreshedEmails.count) of \(expired.count) expired account(s)."]
             if !failures.isEmpty {
                 lines.append("")

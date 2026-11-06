@@ -13,7 +13,8 @@ A native macOS menu-bar companion for switching between saved Codex accounts and
 - **Next** and usage-aware **Maxing** selection
 - Save the currently signed-in Codex account
 - Refresh and save Codex credentials older than eight days across all saved accounts
-- Optional ChatGPT restart after switching (enabled by default)
+- Optional ChatGPT restart after switching (enabled by default). The outgoing ChatGPT account’s local project list and sidebar states replace the incoming account’s, including project removals. Use **Restart ChatGPT** to sync a pending switch if automatic restart is off.
+- Right-click a ChatGPT account to **Delete Projects…** or **Restore Projects…** from a backup for that account. A separate backup is saved before each change. These actions restart ChatGPT and change its sidebar entries. Restoring an inactive account does not exempt it from being overwritten on the next switch.
 - **Stay Awake** toggle to keep the screen on and prevent idle sleep during long AI runs
 - **Lid Awake** toggle to disable system sleep so work can continue with the lid closed (administrator approval required)
 - Restart ChatGPT, log out, refresh, and open the saved-account folder
@@ -31,6 +32,7 @@ When Claude Code has a file-backed OAuth session, the bar reads its credentials 
 
 - macOS 13 or newer
 - Full Xcode (the standalone Xcode Command Line Tools package does not include the SwiftUI macro plugins this app requires)
+- Go is required when building or packaging the menu bar app.
 - ChatGPT installed as `ChatGPT.app` (older `Codex.app` installations also work; restart targets bundle ID `com.openai.codex`)
 
 ## Install
