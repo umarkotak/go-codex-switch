@@ -55,10 +55,124 @@ struct ClaudeOAuthCredentials: Decodable, Sendable {
 struct ClaudeUsageResponse: Decodable, Sendable {
     let fiveHour: ClaudeUsageWindow?
     let sevenDay: ClaudeUsageWindow?
+    /// Saved "Reset for free" grants. Absent unless the request asked for `cedar_ember=1`.
+    let resetStatus: ClaudeLimitResetStatus?
 
     enum CodingKeys: String, CodingKey {
         case fiveHour = "five_hour"
         case sevenDay = "seven_day"
+        case resetStatus = "cedar_ember"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.fiveHour = try container.decodeIfPresent(ClaudeUsageWindow.self, forKey: .fiveHour)
+        self.sevenDay = try container.decodeIfPresent(ClaudeUsageWindow.self, forKey: .sevenDay)
+        // A malformed reset block must never hide the quota windows.
+        self.resetStatus = (try? container.decodeIfPresent(ClaudeLimitResetStatus.self, forKey: .resetStatus)) ?? nil
+    }
+
+    /// Expiry of each saved reset still usable at `date`, soonest first. `nil` means it never expires.
+    func availableResetExpirations(at date: Date) -> [Date?] {
+        self.resetStatus?.availableExpirations(at: date) ?? []
+    }
+}
+
+/// The `cedar_ember` block of Claude's usage response. Only `eligible: true` yields resets; a grant with
+/// an unreadable field is dropped without hiding the others, and an implausibly large inventory yields none.
+struct ClaudeLimitResetStatus: Decodable, Sendable {
+    static let maximumResets = 50
+    static let maximumGrantRecords = 200
+
+    struct Grant: Sendable {
+        let resetsLeft: Int
+        let startsAt: Date?
+        let endsAt: Date?
+        let paused: Bool
+
+        func isAvailable(at date: Date) -> Bool {
+            guard !self.paused, self.resetsLeft > 0 else { return false }
+            if let startsAt, startsAt > date { return false }
+            if let endsAt, endsAt <= date { return false }
+            return true
+        }
+    }
+
+    let eligible: Bool
+    let grants: [Grant]
+
+    private enum CodingKeys: String, CodingKey {
+        case eligible
+        case grants
+    }
+
+    init(eligible: Bool, grants: [Grant]) {
+        self.eligible = eligible
+        self.grants = grants
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.eligible = try container.decode(Bool.self, forKey: .eligible)
+        let records = try container.decodeIfPresent([LossyGrant].self, forKey: .grants) ?? []
+        self.grants = records.count > Self.maximumGrantRecords ? [] : records.compactMap(\.grant)
+    }
+
+    func availableExpirations(at date: Date) -> [Date?] {
+        guard self.eligible else { return [] }
+        var expirations: [Date?] = []
+        for grant in self.grants where grant.isAvailable(at: date) {
+            guard grant.resetsLeft <= Self.maximumResets - expirations.count else { return [] }
+            expirations.append(contentsOf: repeatElement(grant.endsAt, count: grant.resetsLeft))
+        }
+        return expirations.sorted { lhs, rhs in
+            switch (lhs, rhs) {
+            case let (left?, right?): left < right
+            case (_?, nil): true
+            default: false
+            }
+        }
+    }
+
+    private struct LossyGrant: Decodable {
+        let grant: Grant?
+
+        init(from decoder: Decoder) throws {
+            self.grant = try? Self.decodeGrant(from: decoder)
+        }
+
+        private enum Keys: String, CodingKey {
+            case resetsLeft = "resets_left"
+            case resetsTotal = "resets_total"
+            case startsAt = "starts_at"
+            case endsAt = "ends_at"
+            case paused
+        }
+
+        private static func decodeGrant(from decoder: Decoder) throws -> Grant {
+            let container = try decoder.container(keyedBy: Keys.self)
+            let resetsLeft = try container.decode(Int.self, forKey: .resetsLeft)
+            let resetsTotal = try container.decodeIfPresent(Int.self, forKey: .resetsTotal)
+            guard resetsLeft >= 0, resetsTotal.map({ $0 >= resetsLeft }) ?? true else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .resetsLeft, in: container, debugDescription: "resets_left out of range")
+            }
+            return Grant(
+                resetsLeft: resetsLeft,
+                startsAt: try Self.decodeBound(container, key: .startsAt),
+                endsAt: try Self.decodeBound(container, key: .endsAt),
+                paused: try container.decode(Bool.self, forKey: .paused))
+        }
+
+        /// Absent or null is open; a supplied but unreadable bound is malformed, never unbounded.
+        private static func decodeBound(_ container: KeyedDecodingContainer<Keys>, key: Keys) throws -> Date? {
+            guard let raw = try container.decodeIfPresent(String.self, forKey: key) else { return nil }
+            guard let date = ISO8601DateFormatter.codexDate(from: raw) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key, in: container, debugDescription: "Unreadable ISO-8601 bound")
+            }
+            return date
+        }
     }
 }
 

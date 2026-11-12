@@ -7,6 +7,8 @@ enum ClaudeWebAPIError: LocalizedError {
     case noOrganization
     case server(Int)
     case invalidResponse
+    /// 400/403 on a request that is allowed to fall back to a simpler form.
+    case rejected(Int)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +18,7 @@ enum ClaudeWebAPIError: LocalizedError {
         case .noOrganization: "No Claude organization was found for this session."
         case let .server(code): "claude.ai returned HTTP \(code)."
         case .invalidResponse: "claude.ai returned an invalid response."
+        case let .rejected(code): "claude.ai rejected the request (HTTP \(code))."
         }
     }
 }
@@ -44,7 +47,15 @@ struct ClaudeWebAPI: Sendable {
 
     func fetchUsage(sessionKey: String) async throws -> ClaudeUsageResponse {
         let organizationID = try await self.fetchOrganizationID(sessionKey: sessionKey)
-        let data = try await self.get("/organizations/\(organizationID)/usage", sessionKey: sessionKey)
+        // `cedar_ember=1` adds the saved limit-reset grants. If the server rejects the extra query, retry
+        // without it so the quota windows still load.
+        let path = "/organizations/\(organizationID)/usage"
+        let data: Data
+        do {
+            data = try await self.get(path + "?cedar_ember=1", sessionKey: sessionKey, fallbackStatuses: [400, 403])
+        } catch ClaudeWebAPIError.rejected {
+            data = try await self.get(path, sessionKey: sessionKey)
+        }
         do {
             return try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
         } catch {
@@ -84,7 +95,7 @@ struct ClaudeWebAPI: Sendable {
         return selected?["uuid"] as? String
     }
 
-    private func get(_ path: String, sessionKey: String) async throws -> Data {
+    private func get(_ path: String, sessionKey: String, fallbackStatuses: Set<Int> = []) async throws -> Data {
         var request = URLRequest(url: URL(string: Self.baseURL + path)!, timeoutInterval: 15)
         request.httpMethod = "GET"
         request.setValue("sessionKey=\(sessionKey)", forHTTPHeaderField: "Cookie")
@@ -92,6 +103,9 @@ struct ClaudeWebAPI: Sendable {
 
         let (data, response) = try await self.session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ClaudeWebAPIError.invalidResponse }
+        if fallbackStatuses.contains(http.statusCode), !Self.isCloudflareChallenge(http, data: data) {
+            throw ClaudeWebAPIError.rejected(http.statusCode)
+        }
         switch http.statusCode {
         case 200: return data
         case 401: throw ClaudeWebAPIError.unauthorized

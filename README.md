@@ -111,6 +111,7 @@ When Claude Code is signed in with a file-backed OAuth credential, Go Codex Bar 
 
 If no Claude Code credential file exists, Go Codex Bar uses the Claude desktop app instead. Each account lives in its own Claude profile folder: the normal `~/Library/Application Support/Claude` folder plus extra ones in `~/.go-codex-switch/claude-profiles/`, each opened with Electron's `--user-data-dir`. The bar reads every profile's `sessionKey` cookie (decrypted with the `Claude Safe Storage` Keychain item; choose **Always Allow** on the first prompt), queries `claude.ai/api/organizations/{id}/usage`, and shows one card per account. A card is **ACTIVE** while that profile's Claude is running.
 
+- Claude cards also show saved limit resets ("Reset for free" in Claude Settings > Usage) with their expiry dates. The bar only displays them; redeem them in Claude. This is available for desktop profiles, not for Claude Code credentials.
 - **Add Claude Profile** creates a new profile and opens a blank Claude window. Sign in with the emailed code (don't click the emailed link, and quit other Claude windows first if you use Google sign-in), then reopen the menu.
 - Selecting a card, **Next Claude**, or **Maxing Claude** opens that profile's Claude (bringing it forward if it is already running). Other Claude windows are left open; quit them yourself.
 - Always open extra accounts from the bar. Launching Claude from the Dock or Spotlight opens the default profile.

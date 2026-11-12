@@ -247,7 +247,7 @@ struct ContentView: View {
                                 weekly: account.secondaryWindow.flatMap {
                                     UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
                                 },
-                                credits: account.availableResetCredits(at: Date()))
+                                credits: account.availableResetCredits(at: Date()).map(\.expiresAt))
                             {
                                 Task { await self.model.switchTo(email: account.email) }
                             }
@@ -303,7 +303,9 @@ struct ContentView: View {
                                 weekly: (account.usage?.sevenDay).flatMap {
                                     UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
                                 },
-                                credits: nil)
+                                credits: (account.usage?.availableResetExpirations(at: Date())).flatMap {
+                                    $0.isEmpty ? nil : $0
+                                })
                             {
                                 Task { await self.model.switchClaudeTo(email: account.email) }
                             }
@@ -591,7 +593,8 @@ private struct AccountCard: View {
     let usageError: String?
     let session: UsageLine?
     let weekly: UsageLine?
-    let credits: [ResetCredit]?
+    /// Expiry of each saved reset (`nil` = never expires). `nil` hides the row.
+    let credits: [Date?]?
     let action: () -> Void
 
     var body: some View {
@@ -667,8 +670,8 @@ private struct AccountCard: View {
         .disabled(self.isActive || self.isBusy)
     }
 
-    private static func expiryLabel(_ credit: ResetCredit) -> String {
-        guard let expiry = credit.expiresAt else { return "No expiry" }
+    private static func expiryLabel(_ expiry: Date?) -> String {
+        guard let expiry else { return "No expiry" }
         return expiry.formatted(.dateTime.month(.abbreviated).day())
     }
 }
