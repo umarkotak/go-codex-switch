@@ -64,6 +64,31 @@ final class ClaudeDesktopSessionTests: XCTestCase {
         XCTAssertEqual(try reader.readSessionKey(), self.sessionKey)
     }
 
+    func testPrefersNewestSignInAcrossStoresAndPartitions() throws {
+        let home = try self.makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let root = home.appendingPathComponent("Library/Application Support/Claude")
+        let oldKey = "sk-ant-sid01-old-account"
+        let newKey = "sk-ant-sid01-new-account"
+        let oldStore = root.appendingPathComponent("Network/Cookies")
+        let newStore = root.appendingPathComponent("Partitions/claude/Network/Cookies")
+        try self.writeCookieDatabase(
+            at: oldStore,
+            rows: [(host: ".claude.ai", name: "sessionKey", value: oldKey, encrypted: Data())])
+        try self.writeCookieDatabase(
+            at: newStore,
+            rows: [
+                (host: ".claude.ai", name: "sessionKey", value: newKey, encrypted: Data()),
+                (host: "platform.claude.com", name: "sessionKey", value: "sk-ant-console", encrypted: Data()),
+            ])
+        try self.execute("UPDATE cookies SET creation_utc = 100", in: oldStore)
+        try self.execute("UPDATE cookies SET creation_utc = 200", in: newStore)
+
+        let reader = ClaudeDesktopSessionReader(homeURL: home, keychainPassword: { Data() })
+        XCTAssertEqual(try reader.readSessionKeys(), [newKey, oldKey])
+        XCTAssertEqual(try reader.readSessionKey(), newKey)
+    }
+
     func testReportsMissingStoreAndSignedOutSession() throws {
         let home = try self.makeHome()
         let password = self.password
@@ -133,6 +158,13 @@ final class ClaudeDesktopSessionTests: XCTestCase {
         return Data("v10".utf8) + Data(output.prefix(written))
     }
 
+    private func execute(_ sql: String, in url: URL) throws {
+        var db: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(url.path, &db), SQLITE_OK)
+        defer { sqlite3_close(db) }
+        XCTAssertEqual(sqlite3_exec(db, sql, nil, nil, nil), SQLITE_OK)
+    }
+
     private func writeCookieDatabase(
         at url: URL,
         rows: [(host: String, name: String, value: String, encrypted: Data)]) throws
@@ -143,7 +175,8 @@ final class ClaudeDesktopSessionTests: XCTestCase {
         defer { sqlite3_close(db) }
         XCTAssertEqual(sqlite3_exec(db, """
         CREATE TABLE cookies (
-            host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, last_access_utc INTEGER DEFAULT 0)
+            host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, last_access_utc INTEGER DEFAULT 0,
+            creation_utc INTEGER DEFAULT 0, expires_utc INTEGER DEFAULT 0)
         """, nil, nil, nil), SQLITE_OK)
 
         for row in rows {

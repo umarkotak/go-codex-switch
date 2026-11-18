@@ -12,6 +12,10 @@ struct ContentView: View {
     @State private var projectDeletionEmail: String?
     @State private var panelWindowNumber: Int?
     @FocusState private var timerInputFocused: Bool
+    @State private var listContentHeight: CGFloat = 0
+    /// Keeps the whole panel at most about 700 points tall; shorter lists shrink the panel instead of
+    /// leaving empty space below the last section.
+    private static let maxListHeight: CGFloat = 560
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,7 +27,7 @@ struct ContentView: View {
             Divider()
             self.accountList
         }
-        .frame(width: 430, height: 700)
+        .frame(width: 430)
         .background(.ultraThinMaterial)
         .overlay(alignment: .top) {
             if let message = self.model.statusMessage {
@@ -230,7 +234,9 @@ struct ContentView: View {
     private var accountList: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
+                // A plain VStack: LazyVStack mis-estimates the height of cards whose usage loads later,
+                // which left blank space at the bottom of the list.
+                VStack(alignment: .leading, spacing: 12) {
                     Section {
                         self.resetStatusSection
                         ForEach(self.sortedAccounts) { account in
@@ -289,6 +295,11 @@ struct ContentView: View {
                         }
                     }
                     Section {
+                        if self.model.claudeAccounts.isEmpty && self.model.claudeRefreshCount == 0 {
+                            Text("No Claude Code login found. Run `claude` and sign in, then refresh.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                         ForEach(self.sortedClaudeAccounts) { account in
                             AccountCard(
                                 email: account.email,
@@ -305,35 +316,93 @@ struct ContentView: View {
                                 },
                                 credits: (account.usage?.availableResetExpirations(at: Date())).flatMap {
                                     $0.isEmpty ? nil : $0
-                                })
+                                },
+                                detail: account.detail)
                             {
                                 Task { await self.model.switchClaudeTo(email: account.email) }
                             }
                             .contextMenu {
-                                Button(self.model.isClaudeDesktopSession ? "Remove from List" : "Remove Saved Account", systemImage: "trash", role: .destructive) {
+                                Button("Remove Saved Account", systemImage: "trash", role: .destructive) {
                                     self.model.removeClaudeAccount(email: account.email)
                                 }
-                                .disabled(!self.model.canRemoveClaudeAccount)
+                                .disabled(!self.model.canRemoveClaudeAccount || !account.isSaved)
                             }
                         }
                     } header: {
-                        self.accountSectionHeader("Claude") {
-                            Button("Save Current Claude", systemImage: "square.and.arrow.down") {
+                        self.accountSectionHeader("Claude Code") {
+                            Button("Save Current Claude Code", systemImage: "square.and.arrow.down") {
                                 Task { await self.model.saveCurrentClaude() }
                             }
+                            Button("Next Claude Code", systemImage: "arrow.right.circle") {
+                                Task { await self.model.nextClaude() }
+                            }
+                            .disabled(self.model.claudeAccounts.count < 2)
+                            Button("Maxing Claude Code", systemImage: "gauge.with.dots.needle.67percent") {
+                                Task { await self.model.maxingClaude() }
+                            }
+                            .disabled(self.model.claudeRecommendedEmail == nil)
+                        }
+                    }
+                    Section {
+                        if let error = self.model.claudeDesktopError {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .lineLimit(4)
+                        }
+                        ForEach(self.sortedClaudeDesktopAccounts) { account in
+                            AccountCard(
+                                email: account.email,
+                                isActive: account.isActive,
+                                isRecommended: account.email == self.model.claudeDesktopRecommendedEmail,
+                                isBusy: account.email == self.model.busyClaudeDesktopEmail,
+                                isRefreshing: account.email == self.model.refreshingClaudeDesktopEmail,
+                                usageError: account.usageError,
+                                session: (account.usage?.fiveHour).flatMap {
+                                    UsageLine(title: "Session", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                },
+                                weekly: (account.usage?.sevenDay).flatMap {
+                                    UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                },
+                                credits: (account.usage?.availableResetExpirations(at: Date())).flatMap {
+                                    $0.isEmpty ? nil : $0
+                                },
+                                detail: account.detail)
+                            {
+                                Task { await self.model.switchClaudeDesktopTo(email: account.email) }
+                            }
+                            .contextMenu {
+                                Button("Remove from List", systemImage: "trash", role: .destructive) {
+                                    self.model.removeClaudeDesktopAccount(email: account.email)
+                                }
+                                .disabled(!self.model.canRemoveClaudeDesktopAccount)
+                            }
+                        }
+                    } header: {
+                        self.accountSectionHeader("Claude Desktop") {
                             Button("Add Claude Profile", systemImage: "person.badge.plus") {
                                 Task { await self.model.addClaudeProfile() }
                             }
-                            .disabled(self.model.busyClaudeEmail != nil)
+                            .disabled(self.model.busyClaudeDesktopEmail != nil)
+                            Button("Next Claude Desktop", systemImage: "arrow.right.circle") {
+                                Task { await self.model.nextClaudeDesktop() }
+                            }
+                            .disabled(self.model.claudeDesktopAccounts.isEmpty)
+                            Button("Maxing Claude Desktop", systemImage: "gauge.with.dots.needle.67percent") {
+                                Task { await self.model.maxingClaudeDesktop() }
+                            }
+                            .disabled(self.model.claudeDesktopRecommendedEmail == nil)
                             if !self.model.hiddenClaudeProfiles.isEmpty {
                                 Button("Restore Hidden Desktop Profiles", systemImage: "eye") {
                                     Task { await self.model.restoreHiddenClaudeProfiles() }
                                 }
-                                .disabled(!self.model.canRemoveClaudeAccount)
+                                .disabled(!self.model.canRemoveClaudeDesktopAccount)
                             }
                         }
                     }
-                    if self.model.accounts.isEmpty && self.model.claudeAccounts.isEmpty {
+                    if self.model.accounts.isEmpty && self.model.claudeAccounts.isEmpty
+                        && self.model.claudeDesktopAccounts.isEmpty
+                    {
                         Text("No saved accounts")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -342,6 +411,12 @@ struct ContentView: View {
                     }
                 }
                 .padding(12)
+                .background(GeometryReader { geometry in
+                    Color.clear.preference(key: ListContentHeightKey.self, value: geometry.size.height)
+                })
+            }
+            .onPreferenceChange(ListContentHeightKey.self) { height in
+                self.listContentHeight = height
             }
             .onChange(of: self.model.activeEmail) { activeEmail in
                 guard let activeEmail else { return }
@@ -350,7 +425,8 @@ struct ContentView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
+        .frame(height: min(max(self.listContentHeight, 80), Self.maxListHeight))
     }
 
     private func accountSectionHeader<Actions: View>(
@@ -372,6 +448,11 @@ struct ContentView: View {
     private var sortedAccounts: [AccountSnapshot] {
         self.model.accounts.filter(\.isActive)
             + self.model.accounts.filter { !$0.isActive }
+    }
+
+    private var sortedClaudeDesktopAccounts: [ClaudeAccountSnapshot] {
+        self.model.claudeDesktopAccounts.filter(\.isActive)
+            + self.model.claudeDesktopAccounts.filter { !$0.isActive }
     }
 
     private var sortedClaudeAccounts: [ClaudeAccountSnapshot] {
@@ -595,6 +676,8 @@ private struct AccountCard: View {
     let weekly: UsageLine?
     /// Expiry of each saved reset (`nil` = never expires). `nil` hides the row.
     let credits: [Date?]?
+    /// Small secondary line under the email, such as the desktop profile name.
+    var detail: String? = nil
     let action: () -> Void
 
     var body: some View {
@@ -621,6 +704,14 @@ private struct AccountCard: View {
                     if self.isBusy {
                         ProgressView().controlSize(.mini)
                     }
+                }
+                if let detail = self.detail {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .padding(.leading, 14)
+                        .padding(.top, -5)
                 }
 
                 if let error = self.usageError {
@@ -754,5 +845,13 @@ private struct RefreshingBadge: View {
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
         .background(Capsule().fill(self.color.opacity(0.13)))
+    }
+}
+
+private struct ListContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }

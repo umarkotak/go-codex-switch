@@ -209,6 +209,10 @@ struct ClaudeAccountSnapshot: Identifiable, Sendable {
     var isActive: Bool
     var usage: ClaudeUsageResponse?
     var usageError: String?
+    /// Where the card comes from, such as "Saved" or "Profile: default".
+    var detail: String? = nil
+    /// Claude Code only: a saved copy exists that "Remove Saved Account" can delete.
+    var isSaved: Bool = true
 }
 
 enum ClaudeRecommendationEngine {

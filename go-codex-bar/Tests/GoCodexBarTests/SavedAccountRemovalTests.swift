@@ -8,7 +8,7 @@ final class SavedAccountRemovalTests: XCTestCase {
         let home = files.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? files.removeItem(at: home) }
         let codex = AuthStore(homeURL: home)
-        let claude = ClaudeAuthStore(homeURL: home, environment: [:])
+        let claude = ClaudeAuthStore(homeURL: home, environment: [:], keychain: nil)
         let email = "saved@example.com"
         let savedCodex = codex.savedDirectory.appendingPathComponent(email + ".auth.json")
         let savedClaude = claude.savedDirectory.appendingPathComponent(email + ".credentials.json")

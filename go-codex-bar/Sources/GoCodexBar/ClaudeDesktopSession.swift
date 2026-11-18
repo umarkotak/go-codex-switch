@@ -52,12 +52,25 @@ struct ClaudeDesktopSessionReader: Sendable {
     }
 
     /// Chromium keeps cookies in `Network/Cookies` (newer) or `Cookies` (older) under the user data directory.
+    /// Electron session partitions (`Partitions/<name>/...`) have their own stores, so those are included too.
     static func cookieStoreURLs(in dataDirectory: URL) -> [URL] {
-        [
-            dataDirectory.appendingPathComponent("Network", isDirectory: true).appendingPathComponent("Cookies"),
-            dataDirectory.appendingPathComponent("Cookies"),
-        ]
+        func stores(in directory: URL) -> [URL] {
+            [
+                directory.appendingPathComponent("Network", isDirectory: true).appendingPathComponent("Cookies"),
+                directory.appendingPathComponent("Cookies"),
+            ]
+        }
+        var urls = stores(in: dataDirectory)
+        let partitions = dataDirectory.appendingPathComponent("Partitions", isDirectory: true)
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: partitions.path)) ?? []
+        for name in names.sorted() where !name.hasPrefix(".") {
+            urls += stores(in: partitions.appendingPathComponent(name, isDirectory: true))
+        }
+        return urls
     }
+
+    /// Hosts whose `sessionKey` is the claude.ai chat session. Console hosts (platform.claude.com) are excluded.
+    static let sessionHosts = ["claude.ai", ".claude.ai", "claude.com", ".claude.com"]
 
     init(
         homeURL: URL,
@@ -76,22 +89,55 @@ struct ClaudeDesktopSessionReader: Sendable {
         self.keychainPassword = keychainPassword
     }
 
+    /// The newest sign-in's session key.
     func readSessionKey() throws -> String {
+        try self.readSessionKeys()[0]
+    }
+
+    /// Every unexpired session key in the profile, newest sign-in first. An old account's cookie can stay
+    /// behind (and stay valid) after signing in to another account, so callers should prefer the first key
+    /// that works rather than whichever store happens to be listed first.
+    func readSessionKeys() throws -> [String] {
         let fileManager = FileManager.default
-        let stores = self.cookieStoreCandidates
-            .filter { fileManager.fileExists(atPath: $0.path) }
-            .sorted { Self.modificationDate($0) > Self.modificationDate($1) }
+        let stores = self.cookieStoreCandidates.filter { fileManager.fileExists(atPath: $0.path) }
         guard !stores.isEmpty else { throw ClaudeDesktopSessionError.cookieStoreMissing }
 
+        var found: [(key: String, created: Int64, accessed: Int64)] = []
         var firstError: ClaudeDesktopSessionError?
+        var derivedKey: Data?
         for store in stores {
             do {
-                if let key = try self.readSessionKey(from: store) { return key }
+                for row in try Self.sessionRows(in: store) {
+                    do {
+                        if let key = try self.sessionKey(from: row, derivedKey: &derivedKey) {
+                            found.append((key, row.created, row.accessed))
+                        }
+                    } catch let error as ClaudeDesktopSessionError {
+                        switch error {
+                        case .keychainDenied, .keychainItemMissing:
+                            throw error // Don't ask the Keychain again for every remaining cookie.
+                        default:
+                            firstError = firstError ?? error
+                        }
+                    }
+                }
+            } catch ClaudeDesktopSessionError.keychainDenied(let status) {
+                throw ClaudeDesktopSessionError.keychainDenied(status)
+            } catch ClaudeDesktopSessionError.keychainItemMissing {
+                throw ClaudeDesktopSessionError.keychainItemMissing
             } catch let error as ClaudeDesktopSessionError {
                 firstError = firstError ?? error
             }
         }
-        throw firstError ?? ClaudeDesktopSessionError.noSessionKey
+        let ordered = found.sorted { lhs, rhs in
+            lhs.created == rhs.created ? lhs.accessed > rhs.accessed : lhs.created > rhs.created
+        }
+        var keys: [String] = []
+        for entry in ordered where !keys.contains(entry.key) {
+            keys.append(entry.key)
+        }
+        guard !keys.isEmpty else { throw firstError ?? ClaudeDesktopSessionError.noSessionKey }
+        return keys
     }
 
     // MARK: - SQLite
@@ -99,28 +145,19 @@ struct ClaudeDesktopSessionReader: Sendable {
     private struct CookieRow {
         let value: String
         let encryptedValue: Data
+        let created: Int64
+        let accessed: Int64
     }
 
-    private func readSessionKey(from store: URL) throws -> String? {
-        let rows = try Self.sessionRows(in: store)
-        var derivedKey: Data?
-        var decryptError: ClaudeDesktopSessionError?
-        for row in rows {
-            let plain = row.value.trimmingCharacters(in: .whitespacesAndNewlines)
-            if plain.hasPrefix(Self.sessionKeyPrefix) { return plain }
-            guard !row.encryptedValue.isEmpty else { continue }
-            if derivedKey == nil {
-                derivedKey = try Self.deriveKey(password: self.keychainPassword())
-            }
-            do {
-                let plaintext = try Self.decrypt(row.encryptedValue, key: derivedKey!)
-                if let key = Self.extractSessionKey(from: plaintext) { return key }
-            } catch let error as ClaudeDesktopSessionError {
-                decryptError = decryptError ?? error
-            }
+    private func sessionKey(from row: CookieRow, derivedKey: inout Data?) throws -> String? {
+        let plain = row.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if plain.hasPrefix(Self.sessionKeyPrefix) { return plain }
+        guard !row.encryptedValue.isEmpty else { return nil }
+        if derivedKey == nil {
+            derivedKey = try Self.deriveKey(password: self.keychainPassword())
         }
-        if let decryptError { throw decryptError }
-        return nil
+        let plaintext = try Self.decrypt(row.encryptedValue, key: derivedKey!)
+        return Self.extractSessionKey(from: plaintext)
     }
 
     private static func sessionRows(in store: URL) throws -> [CookieRow] {
@@ -154,10 +191,14 @@ struct ClaudeDesktopSessionReader: Sendable {
         }
         defer { sqlite3_close(db) }
 
+        // Chromium times are microseconds since 1601-01-01. `expires_utc = 0` is a session cookie.
+        let now = (Int64(Date().timeIntervalSince1970) + 11_644_473_600) * 1_000_000
+        let hosts = Self.sessionHosts.map { "'\($0)'" }.joined(separator: ", ")
         let sql = """
-        SELECT value, encrypted_value FROM cookies
-        WHERE name = 'sessionKey' AND host_key LIKE '%claude.ai'
-        ORDER BY last_access_utc DESC
+        SELECT value, encrypted_value, creation_utc, last_access_utc FROM cookies
+        WHERE name = 'sessionKey' AND host_key IN (\(hosts))
+          AND (expires_utc = 0 OR expires_utc > \(now))
+        ORDER BY creation_utc DESC, last_access_utc DESC
         """
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
@@ -173,7 +214,11 @@ struct ClaudeDesktopSessionReader: Sendable {
             if length > 0, let bytes = sqlite3_column_blob(statement, 1) {
                 encrypted = Data(bytes: bytes, count: length)
             }
-            rows.append(CookieRow(value: value, encryptedValue: encrypted))
+            rows.append(CookieRow(
+                value: value,
+                encryptedValue: encrypted,
+                created: sqlite3_column_int64(statement, 2),
+                accessed: sqlite3_column_int64(statement, 3)))
         }
         return rows
     }
@@ -264,9 +309,5 @@ struct ClaudeDesktopSessionReader: Sendable {
         default:
             throw ClaudeDesktopSessionError.keychainDenied(status)
         }
-    }
-
-    private static func modificationDate(_ url: URL) -> Date {
-        (try? FileManager.default.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
     }
 }
