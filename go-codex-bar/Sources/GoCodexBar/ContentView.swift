@@ -8,6 +8,12 @@ struct ContentView: View {
     @EnvironmentObject private var stayAwake: StayAwakeController
     @EnvironmentObject private var lidAwake: LidAwakeController
     @AppStorage("restartAfterSwitch") private var restartAfterSwitch = true
+    // Show/hide state for each provider section and each account card; persisted across panel opens and launches.
+    /// Newline-separated "provider|email" keys of account cards whose usage details are hidden.
+    @AppStorage("hiddenAccountCards") private var hiddenAccountCardsRaw = ""
+    @AppStorage("sectionHidden.codex") private var codexHidden = false
+    @AppStorage("sectionHidden.claudeCode") private var claudeCodeHidden = false
+    @AppStorage("sectionHidden.claudeDesktop") private var claudeDesktopHidden = false
     @State private var confirmsLogout = false
     @State private var projectDeletionEmail: String?
     @State private var panelWindowNumber: Int?
@@ -238,43 +244,49 @@ struct ContentView: View {
                 // which left blank space at the bottom of the list.
                 VStack(alignment: .leading, spacing: 12) {
                     Section {
-                        self.resetStatusSection
-                        ForEach(self.sortedAccounts) { account in
-                            AccountCard(
-                                email: account.email,
-                                isActive: account.isActive,
-                                isRecommended: account.email == self.model.recommendedEmail,
-                                isBusy: account.email == self.model.busyEmail,
-                                isRefreshing: account.email == self.model.refreshingEmail,
-                                usageError: account.usageError,
-                                session: account.primaryWindow.flatMap {
-                                    UsageLine(title: "Session", remaining: $0.remainingPercent, resetDate: $0.resetDate)
-                                },
-                                weekly: account.secondaryWindow.flatMap {
-                                    UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
-                                },
-                                credits: account.availableResetCredits(at: Date()).map(\.expiresAt))
-                            {
-                                Task { await self.model.switchTo(email: account.email) }
-                            }
-                            .contextMenu {
-                                Button("Restore Projects…", systemImage: "arrow.counterclockwise") {
-                                    self.chooseProjectBackup(email: account.email)
+                        if !self.codexHidden {
+                            self.resetStatusSection
+                            ForEach(self.sortedAccounts) { account in
+                                AccountCard(
+                                    email: account.email,
+                                    isActive: account.isActive,
+                                    isRecommended: account.email == self.model.recommendedEmail,
+                                    isBusy: account.email == self.model.busyEmail,
+                                    isRefreshing: account.email == self.model.refreshingEmail,
+                                    usageError: account.usageError,
+                                    session: account.primaryWindow.flatMap {
+                                        UsageLine(title: "Session", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                    },
+                                    weekly: account.secondaryWindow.flatMap {
+                                        UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                    },
+                                    credits: account.availableResetCredits(at: Date()).map(\.expiresAt),
+                                    isCollapsed: self.isCardHidden("codex", account.email),
+                                    toggleCollapsed: { self.toggleCardHidden("codex", account.email) })
+                                {
+                                    Task { await self.model.switchTo(email: account.email) }
                                 }
-                                .disabled(!self.model.canRemoveCodexAccount)
-                                Button("Delete Projects…", systemImage: "folder.badge.minus", role: .destructive) {
-                                    self.projectDeletionEmail = account.email
+                                .contextMenu {
+                                    Button("Restore Projects…", systemImage: "arrow.counterclockwise") {
+                                        self.chooseProjectBackup(email: account.email)
+                                    }
+                                    .disabled(!self.model.canRemoveCodexAccount)
+                                    Button("Delete Projects…", systemImage: "folder.badge.minus", role: .destructive) {
+                                        self.projectDeletionEmail = account.email
+                                    }
+                                    .disabled(!self.model.canRemoveCodexAccount)
+                                    Divider()
+                                    Button("Remove Saved Account", systemImage: "trash", role: .destructive) {
+                                        self.model.removeCodexAccount(email: account.email)
+                                    }
+                                    .disabled(!self.model.canRemoveCodexAccount)
                                 }
-                                .disabled(!self.model.canRemoveCodexAccount)
-                                Divider()
-                                Button("Remove Saved Account", systemImage: "trash", role: .destructive) {
-                                    self.model.removeCodexAccount(email: account.email)
-                                }
-                                .disabled(!self.model.canRemoveCodexAccount)
                             }
                         }
                     } header: {
-                        self.accountSectionHeader("Codex") {
+                        self.accountSectionHeader(
+                            "Codex", count: self.model.accounts.count, isHidden: self.$codexHidden)
+                        {
                             Button("Save Current", systemImage: "square.and.arrow.down") {
                                 Task { await self.model.saveCurrent() }
                             }
@@ -295,41 +307,47 @@ struct ContentView: View {
                         }
                     }
                     Section {
-                        if self.model.claudeAccounts.isEmpty && self.model.claudeRefreshCount == 0 {
-                            Text("No Claude Code login found. Run `claude` and sign in, then refresh.")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        ForEach(self.sortedClaudeAccounts) { account in
-                            AccountCard(
-                                email: account.email,
-                                isActive: account.isActive,
-                                isRecommended: account.email == self.model.claudeRecommendedEmail,
-                                isBusy: account.email == self.model.busyClaudeEmail,
-                                isRefreshing: account.email == self.model.refreshingClaudeEmail,
-                                usageError: account.usageError,
-                                session: (account.usage?.fiveHour).flatMap {
-                                    UsageLine(title: "Session", remaining: $0.remainingPercent, resetDate: $0.resetDate)
-                                },
-                                weekly: (account.usage?.sevenDay).flatMap {
-                                    UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
-                                },
-                                credits: (account.usage?.availableResetExpirations(at: Date())).flatMap {
-                                    $0.isEmpty ? nil : $0
-                                },
-                                detail: account.detail)
-                            {
-                                Task { await self.model.switchClaudeTo(email: account.email) }
+                        if !self.claudeCodeHidden {
+                            if self.model.claudeAccounts.isEmpty && self.model.claudeRefreshCount == 0 {
+                                Text("No Claude Code login found. Run `claude` and sign in, then refresh.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
-                            .contextMenu {
-                                Button("Remove Saved Account", systemImage: "trash", role: .destructive) {
-                                    self.model.removeClaudeAccount(email: account.email)
+                            ForEach(self.sortedClaudeAccounts) { account in
+                                AccountCard(
+                                    email: account.email,
+                                    isActive: account.isActive,
+                                    isRecommended: account.email == self.model.claudeRecommendedEmail,
+                                    isBusy: account.email == self.model.busyClaudeEmail,
+                                    isRefreshing: account.email == self.model.refreshingClaudeEmail,
+                                    usageError: account.usageError,
+                                    session: (account.usage?.fiveHour).flatMap {
+                                        UsageLine(title: "Session", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                    },
+                                    weekly: (account.usage?.sevenDay).flatMap {
+                                        UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                    },
+                                    credits: (account.usage?.availableResetExpirations(at: Date())).flatMap {
+                                        $0.isEmpty ? nil : $0
+                                    },
+                                    detail: account.detail,
+                                    isCollapsed: self.isCardHidden("claudeCode", account.email),
+                                    toggleCollapsed: { self.toggleCardHidden("claudeCode", account.email) })
+                                {
+                                    Task { await self.model.switchClaudeTo(email: account.email) }
                                 }
-                                .disabled(!self.model.canRemoveClaudeAccount || !account.isSaved)
+                                .contextMenu {
+                                    Button("Remove Saved Account", systemImage: "trash", role: .destructive) {
+                                        self.model.removeClaudeAccount(email: account.email)
+                                    }
+                                    .disabled(!self.model.canRemoveClaudeAccount || !account.isSaved)
+                                }
                             }
                         }
                     } header: {
-                        self.accountSectionHeader("Claude Code") {
+                        self.accountSectionHeader(
+                            "Claude Code", count: self.model.claudeAccounts.count, isHidden: self.$claudeCodeHidden)
+                        {
                             Button("Save Current Claude Code", systemImage: "square.and.arrow.down") {
                                 Task { await self.model.saveCurrentClaude() }
                             }
@@ -344,42 +362,49 @@ struct ContentView: View {
                         }
                     }
                     Section {
-                        if let error = self.model.claudeDesktopError {
-                            Label(error, systemImage: "exclamationmark.triangle")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                                .lineLimit(4)
-                        }
-                        ForEach(self.sortedClaudeDesktopAccounts) { account in
-                            AccountCard(
-                                email: account.email,
-                                isActive: account.isActive,
-                                isRecommended: account.email == self.model.claudeDesktopRecommendedEmail,
-                                isBusy: account.email == self.model.busyClaudeDesktopEmail,
-                                isRefreshing: account.email == self.model.refreshingClaudeDesktopEmail,
-                                usageError: account.usageError,
-                                session: (account.usage?.fiveHour).flatMap {
-                                    UsageLine(title: "Session", remaining: $0.remainingPercent, resetDate: $0.resetDate)
-                                },
-                                weekly: (account.usage?.sevenDay).flatMap {
-                                    UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
-                                },
-                                credits: (account.usage?.availableResetExpirations(at: Date())).flatMap {
-                                    $0.isEmpty ? nil : $0
-                                },
-                                detail: account.detail)
-                            {
-                                Task { await self.model.switchClaudeDesktopTo(email: account.email) }
+                        if !self.claudeDesktopHidden {
+                            if let error = self.model.claudeDesktopError {
+                                Label(error, systemImage: "exclamationmark.triangle")
+                                    .font(.caption)
+                                    .foregroundStyle(.orange)
+                                    .lineLimit(4)
                             }
-                            .contextMenu {
-                                Button("Remove from List", systemImage: "trash", role: .destructive) {
-                                    self.model.removeClaudeDesktopAccount(email: account.email)
+                            ForEach(self.sortedClaudeDesktopAccounts) { account in
+                                AccountCard(
+                                    email: account.email,
+                                    isActive: account.isActive,
+                                    isRecommended: account.email == self.model.claudeDesktopRecommendedEmail,
+                                    isBusy: account.email == self.model.busyClaudeDesktopEmail,
+                                    isRefreshing: account.email == self.model.refreshingClaudeDesktopEmail,
+                                    usageError: account.usageError,
+                                    session: (account.usage?.fiveHour).flatMap {
+                                        UsageLine(title: "Session", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                    },
+                                    weekly: (account.usage?.sevenDay).flatMap {
+                                        UsageLine(title: "Weekly", remaining: $0.remainingPercent, resetDate: $0.resetDate)
+                                    },
+                                    credits: (account.usage?.availableResetExpirations(at: Date())).flatMap {
+                                        $0.isEmpty ? nil : $0
+                                    },
+                                    detail: account.detail,
+                                    isCollapsed: self.isCardHidden("claudeDesktop", account.email),
+                                    toggleCollapsed: { self.toggleCardHidden("claudeDesktop", account.email) })
+                                {
+                                    Task { await self.model.switchClaudeDesktopTo(email: account.email) }
                                 }
-                                .disabled(!self.model.canRemoveClaudeDesktopAccount)
+                                .contextMenu {
+                                    Button("Remove from List", systemImage: "trash", role: .destructive) {
+                                        self.model.removeClaudeDesktopAccount(email: account.email)
+                                    }
+                                    .disabled(!self.model.canRemoveClaudeDesktopAccount)
+                                }
                             }
                         }
                     } header: {
-                        self.accountSectionHeader("Claude Desktop") {
+                        self.accountSectionHeader(
+                            "Claude Desktop", count: self.model.claudeDesktopAccounts.count,
+                            isHidden: self.$claudeDesktopHidden)
+                        {
                             Button("Add Claude Profile", systemImage: "person.badge.plus") {
                                 Task { await self.model.addClaudeProfile() }
                             }
@@ -430,10 +455,15 @@ struct ContentView: View {
     }
 
     private func accountSectionHeader<Actions: View>(
-        _ title: String, @ViewBuilder actions: () -> Actions
+        _ title: String, count: Int, isHidden: Binding<Bool>, @ViewBuilder actions: () -> Actions
     ) -> some View {
         HStack {
             Text(title).font(.headline)
+            if isHidden.wrappedValue {
+                Text("\(count) hidden")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Menu(content: actions) {
                 Image(systemName: "ellipsis.circle")
@@ -442,7 +472,35 @@ struct ContentView: View {
             .menuStyle(.borderlessButton)
             .controlSize(.small)
             .fixedSize()
+            Button {
+                isHidden.wrappedValue.toggle()
+            } label: {
+                Image(systemName: isHidden.wrappedValue ? "eye.slash" : "eye")
+            }
+            .buttonStyle(.borderless)
+            .controlSize(.small)
+            .help(isHidden.wrappedValue ? "Show \(title)" : "Hide \(title)")
+            .accessibilityLabel(isHidden.wrappedValue ? "Show \(title)" : "Hide \(title)")
         }
+    }
+
+    private var hiddenAccountCards: Set<String> {
+        Set(self.hiddenAccountCardsRaw.split(separator: "\n").map(String.init))
+    }
+
+    private func isCardHidden(_ provider: String, _ email: String) -> Bool {
+        self.hiddenAccountCards.contains("\(provider)|\(email)")
+    }
+
+    private func toggleCardHidden(_ provider: String, _ email: String) {
+        var keys = self.hiddenAccountCards
+        let key = "\(provider)|\(email)"
+        if keys.contains(key) {
+            keys.remove(key)
+        } else {
+            keys.insert(key)
+        }
+        self.hiddenAccountCardsRaw = keys.sorted().joined(separator: "\n")
     }
 
     private var sortedAccounts: [AccountSnapshot] {
@@ -678,6 +736,9 @@ private struct AccountCard: View {
     let credits: [Date?]?
     /// Small secondary line under the email, such as the desktop profile name.
     var detail: String? = nil
+    /// When true only the email row is shown; usage, errors and credits are hidden.
+    var isCollapsed = false
+    var toggleCollapsed: () -> Void = {}
     let action: () -> Void
 
     var body: some View {
@@ -704,6 +765,8 @@ private struct AccountCard: View {
                     if self.isBusy {
                         ProgressView().controlSize(.mini)
                     }
+                    // Reserves room for the show/hide button overlaid outside the card's button.
+                    Color.clear.frame(width: 16, height: 1)
                 }
                 if let detail = self.detail {
                     Text(detail)
@@ -714,7 +777,9 @@ private struct AccountCard: View {
                         .padding(.top, -5)
                 }
 
-                if let error = self.usageError {
+                if self.isCollapsed {
+                    EmptyView()
+                } else if let error = self.usageError {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.caption)
                         .foregroundStyle(.orange)
@@ -734,7 +799,7 @@ private struct AccountCard: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if let credits = self.credits {
+                if !self.isCollapsed, let credits = self.credits {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Image(systemName: "arrow.counterclockwise.circle.fill")
                             .foregroundStyle(.cyan)
@@ -759,6 +824,19 @@ private struct AccountCard: View {
         }
         .buttonStyle(.plain)
         .disabled(self.isActive || self.isBusy)
+        // Kept outside the card's button so it still works on the active (disabled) card.
+        .overlay(alignment: .topTrailing) {
+            Button(action: self.toggleCollapsed) {
+                Image(systemName: self.isCollapsed ? "eye.slash" : "eye")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.borderless)
+            .help(self.isCollapsed ? "Show usage" : "Hide usage")
+            .accessibilityLabel(self.isCollapsed ? "Show usage for \(self.email)" : "Hide usage for \(self.email)")
+            .padding(.top, 11)
+            .padding(.trailing, 11)
+        }
     }
 
     private static func expiryLabel(_ expiry: Date?) -> String {
