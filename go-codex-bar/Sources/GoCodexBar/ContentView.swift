@@ -743,78 +743,83 @@ private struct AccountCard: View {
 
     var body: some View {
         Button(action: self.action) {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(self.isActive ? Color.green : Color.secondary.opacity(0.35))
-                        .frame(width: 7, height: 7)
-                    Text(self.email)
-                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
-                        .lineLimit(1)
-                    Spacer()
-                    if self.isRefreshing {
-                        RefreshingBadge(color: .indigo)
-                    } else {
-                        if self.isActive {
-                            Badge(text: "ACTIVE", color: .green)
-                        }
-                        if self.isRecommended {
-                            Badge(text: "RECOMMENDED", color: .indigo)
-                        }
-                    }
-                    if self.isBusy {
-                        ProgressView().controlSize(.mini)
-                    }
-                    // Reserves room for the show/hide button overlaid outside the card's button.
-                    Color.clear.frame(width: 16, height: 1)
-                }
-                if let detail = self.detail {
-                    Text(detail)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .padding(.leading, 14)
-                        .padding(.top, -5)
-                }
-
+            Group {
                 if self.isCollapsed {
-                    EmptyView()
-                } else if let error = self.usageError {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .lineLimit(2)
-                } else if self.session != nil || self.weekly != nil {
-                    HStack(spacing: 10) {
-                        self.session
-                        if self.session != nil && self.weekly != nil {
-                            Divider()
-                        }
-                        self.weekly
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
+                    self.compactRow
                 } else {
-                    Text("Usage unavailable")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if !self.isCollapsed, let credits = self.credits {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: "arrow.counterclockwise.circle.fill")
-                            .foregroundStyle(.cyan)
-                        Text("\(credits.count) reset credit\(credits.count == 1 ? "" : "s")")
-                            .font(.caption.weight(.medium))
-                        if !credits.isEmpty {
-                            Text(credits.map(Self.expiryLabel).joined(separator: " · "))
-                                .font(.caption2.monospacedDigit())
+                    VStack(alignment: .leading, spacing: 9) {
+                        HStack(spacing: 7) {
+                            Circle()
+                                .fill(self.isActive ? Color.green : Color.secondary.opacity(0.35))
+                                .frame(width: 7, height: 7)
+                            Text(self.email)
+                                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                                .lineLimit(1)
+                            Spacer()
+                            if self.isRefreshing {
+                                RefreshingBadge(color: .indigo)
+                            } else {
+                                if self.isActive {
+                                    Badge(text: "ACTIVE", color: .green)
+                                }
+                                if self.isRecommended {
+                                    Badge(text: "RECOMMENDED", color: .indigo)
+                                }
+                            }
+                            if self.isBusy {
+                                ProgressView().controlSize(.mini)
+                            }
+                            // Reserves room for the show/hide button overlaid outside the card's button.
+                            Color.clear.frame(width: 16, height: 1)
+                        }
+                        if let detail = self.detail {
+                            Text(detail)
+                                .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                                .padding(.leading, 14)
+                                .padding(.top, -5)
+                        }
+
+                        if let error = self.usageError {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .lineLimit(2)
+                        } else if self.session != nil || self.weekly != nil {
+                            HStack(spacing: 10) {
+                                self.session
+                                if self.session != nil && self.weekly != nil {
+                                    Divider()
+                                }
+                                self.weekly
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            Text("Usage unavailable")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if let credits = self.credits {
+                            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                Image(systemName: "arrow.counterclockwise.circle.fill")
+                                    .foregroundStyle(.cyan)
+                                Text("\(credits.count) reset credit\(credits.count == 1 ? "" : "s")")
+                                    .font(.caption.weight(.medium))
+                                if !credits.isEmpty {
+                                    Text(credits.map(Self.expiryLabel).joined(separator: " · "))
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
                         }
                     }
                 }
             }
-            .padding(11)
+            .padding(.horizontal, 11)
+            .padding(.vertical, self.isCollapsed ? 7 : 11)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(self.isActive ? Color.accentColor.opacity(0.09) : Color.primary.opacity(0.045)))
@@ -825,7 +830,7 @@ private struct AccountCard: View {
         .buttonStyle(.plain)
         .disabled(self.isActive || self.isBusy)
         // Kept outside the card's button so it still works on the active (disabled) card.
-        .overlay(alignment: .topTrailing) {
+        .overlay(alignment: self.isCollapsed ? .trailing : .topTrailing) {
             Button(action: self.toggleCollapsed) {
                 Image(systemName: self.isCollapsed ? "eye.slash" : "eye")
                     .font(.caption)
@@ -834,9 +839,40 @@ private struct AccountCard: View {
             .buttonStyle(.borderless)
             .help(self.isCollapsed ? "Show usage" : "Hide usage")
             .accessibilityLabel(self.isCollapsed ? "Show usage for \(self.email)" : "Hide usage for \(self.email)")
-            .padding(.top, 11)
+            .padding(.top, self.isCollapsed ? 0 : 11)
             .padding(.trailing, 11)
         }
+    }
+
+    /// Hidden-card layout: short name plus a ring per quota window; no badges or spinners.
+    private var compactRow: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(self.isActive ? Color.green : Color.secondary.opacity(0.35))
+                .frame(width: 7, height: 7)
+            Text(Self.shortName(self.email))
+                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                .lineLimit(1)
+                .help(self.email)
+            Spacer(minLength: 6)
+            if let error = self.usageError {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .help(error)
+            } else {
+                if let session = self.session { UsageRing(line: session) }
+                if let weekly = self.weekly { UsageRing(line: weekly) }
+            }
+            // Reserves room for the show/hide button overlaid outside the card's button.
+            Color.clear.frame(width: 16, height: 1)
+        }
+    }
+
+    /// "name@gmail.com" -> "name".
+    private static func shortName(_ email: String) -> String {
+        guard let at = email.firstIndex(of: "@"), at != email.startIndex else { return email }
+        return String(email[..<at])
     }
 
     private static func expiryLabel(_ expiry: Date?) -> String {
@@ -886,12 +922,47 @@ private struct UsageLine: View {
         }
     }
 
-    private var barColor: Color {
+    var barColor: Color {
         switch self.remaining {
         case 50...: .green
         case 20...: .orange
         default: .red
         }
+    }
+}
+
+/// Small circular quota gauge: remaining percent in the center, window title below.
+private struct UsageRing: View {
+    let line: UsageLine
+
+    var body: some View {
+        VStack(spacing: 2) {
+            ZStack {
+                Circle()
+                    .stroke(Color.primary.opacity(0.1), lineWidth: 3)
+                Circle()
+                    .trim(from: 0, to: max(0, min(1, self.line.remaining / 100)))
+                    .stroke(self.line.barColor, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.6), value: self.line.remaining)
+                Text("\(self.line.remaining, specifier: "%.0f")")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+            }
+            .frame(width: 26, height: 26)
+            Text(self.line.title)
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .help(self.ringHelp)
+    }
+
+    private var ringHelp: String {
+        var text = "\(self.line.title): \(Int(self.line.remaining.rounded()))% left"
+        if let reset = self.line.resetDate, reset > Date() {
+            text += ", resets \(reset.formatted(.relative(presentation: .named)))"
+        }
+        return text
     }
 }
 
