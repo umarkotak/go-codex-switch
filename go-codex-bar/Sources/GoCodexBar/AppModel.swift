@@ -10,6 +10,9 @@ final class AppModel: ObservableObject {
     @Published private(set) var claudeDesktopAccounts: [ClaudeAccountSnapshot] = []
     @Published private(set) var claudeDesktopRecommendedEmail: String?
     @Published private(set) var claudeDesktopError: String?
+    @Published private(set) var geminiAccounts: [GeminiAccountSnapshot] = []
+    @Published private(set) var geminiError: String?
+    @Published private(set) var isRefreshingGemini = false
     @Published private(set) var recommendedEmail: String?
     @Published private(set) var codexResetStatus: CodexResetsResponse?
     @Published private(set) var codexResetStatusError: CodexResetStatusError?
@@ -41,6 +44,7 @@ final class AppModel: ObservableObject {
         UserDefaults.standard.stringArray(forKey: hiddenClaudeProfilesKey) ?? []
     private let claudeWebAPI: ClaudeWebAPI
     private let codexResetsAPI: CodexResetsAPI
+    private let geminiAPI: GeminiAPI
 
     init(
         authStore: AuthStore = AuthStore(),
@@ -50,7 +54,8 @@ final class AppModel: ObservableObject {
         claudeDesktopProfiles: ClaudeDesktopProfileStore = ClaudeDesktopProfileStore(),
         claudeDesktopLauncher: ClaudeDesktopLauncher = ClaudeDesktopLauncher(),
         claudeWebAPI: ClaudeWebAPI = ClaudeWebAPI(),
-        codexResetsAPI: CodexResetsAPI = CodexResetsAPI())
+        codexResetsAPI: CodexResetsAPI = CodexResetsAPI(),
+        geminiAPI: GeminiAPI = GeminiAPI())
     {
         self.authStore = authStore
         self.api = api
@@ -60,6 +65,7 @@ final class AppModel: ObservableObject {
         self.claudeDesktopLauncher = claudeDesktopLauncher
         self.claudeWebAPI = claudeWebAPI
         self.codexResetsAPI = codexResetsAPI
+        self.geminiAPI = geminiAPI
     }
 
     var activeEmail: String? { self.accounts.first(where: \ .isActive)?.email }
@@ -77,9 +83,36 @@ final class AppModel: ObservableObject {
     func refresh() async {
         async let claude: Void = self.refreshClaudeAccounts()
         async let desktop: Void = self.refreshClaudeDesktopAccounts()
+        async let gemini: Void = self.refreshGeminiAccounts()
         await self.refreshCodexAccounts()
         await claude
         await desktop
+        await gemini
+    }
+
+    func refreshGeminiAccounts() async {
+        guard !self.isRefreshingGemini else { return }
+        self.isRefreshingGemini = true
+        defer { self.isRefreshingGemini = false }
+        do {
+            self.geminiAccounts = try await self.geminiAPI.fetch(source: .auto)
+            self.geminiError = nil
+        } catch is CancellationError {
+            return
+        } catch {
+            // An account may have changed since the previous refresh; never leave its quota looking current.
+            self.geminiAccounts = []
+            self.geminiError = (error as? GeminiUsageError)?.localizedDescription
+                ?? "Could not check Gemini usage. Open Antigravity or sign in with `agy`, then refresh."
+        }
+    }
+
+    func openAntigravity() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.antigravity") else {
+            self.errorMessage = "Antigravity is not installed. Install Antigravity and sign in to see Gemini usage."
+            return
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 
     private func refreshCodexAccounts() async {

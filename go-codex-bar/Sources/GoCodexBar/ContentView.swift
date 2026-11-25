@@ -13,6 +13,7 @@ struct ContentView: View {
     @AppStorage("hiddenAccountCards") private var hiddenAccountCardsRaw = ""
     @AppStorage("sectionHidden.codex") private var codexHidden = false
     @AppStorage("sectionHidden.claude") private var claudeHidden = false
+    @AppStorage("sectionHidden.gemini") private var geminiHidden = false
     @State private var confirmsLogout = false
     @State private var projectDeletionEmail: String?
     @State private var panelWindowNumber: Int?
@@ -358,8 +359,10 @@ struct ContentView: View {
                             }
                         }
                     }
+                    self.geminiSection
                     if self.model.accounts.isEmpty && self.model.claudeAccounts.isEmpty
                         && self.model.claudeDesktopAccounts.isEmpty
+                        && self.model.geminiAccounts.isEmpty
                     {
                         Text("No saved accounts")
                             .font(.caption)
@@ -414,6 +417,49 @@ struct ContentView: View {
             .controlSize(.small)
             .help(isHidden.wrappedValue ? "Show \(title)" : "Hide \(title)")
             .accessibilityLabel(isHidden.wrappedValue ? "Show \(title)" : "Hide \(title)")
+        }
+    }
+
+    private var geminiSection: some View {
+        Section {
+            if !self.geminiHidden {
+                if self.model.isRefreshingGemini && self.model.geminiAccounts.isEmpty {
+                    RefreshingBadge(color: .indigo)
+                }
+                if let error = self.model.geminiError {
+                    Label(error, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+                ForEach(self.model.geminiAccounts) { account in
+                    AccountCard(
+                        email: account.title,
+                        isActive: account.email != nil,
+                        isRecommended: false, isBusy: false,
+                        isRefreshing: self.model.isRefreshingGemini,
+                        usageError: nil, session: nil, weekly: nil, credits: nil,
+                        detail: [account.source, account.plan].compactMap { $0 }.joined(separator: " · "),
+                        extraUsage: account.windows.compactMap {
+                            UsageLine(title: $0.title.replacingOccurrences(of: "Gemini ", with: "")
+                                .replacingOccurrences(of: "Claude/GPT ", with: "Claude "),
+                                      remaining: $0.remainingPercent, resetDate: $0.resetDate,
+                                      resetDescription: $0.resetDescription)
+                        },
+                        unavailableUsage: account.windows.filter { $0.remainingPercent == nil }.map(\.title),
+                        isCollapsed: self.isCardHidden("gemini", account.id),
+                        toggleCollapsed: { self.toggleCardHidden("gemini", account.id) })
+                }
+            }
+        } header: {
+            self.accountSectionHeader("Gemini", count: self.model.geminiAccounts.count, isHidden: self.$geminiHidden) {
+                Button("Refresh Gemini", systemImage: "arrow.clockwise") {
+                    Task { await self.model.refreshGeminiAccounts() }
+                }
+                .disabled(self.model.isRefreshingGemini)
+                Button("Open Antigravity", systemImage: "arrow.up.forward.app") {
+                    self.model.openAntigravity()
+                }
+            }
         }
     }
 
@@ -826,6 +872,8 @@ private struct AccountCard: View {
     let credits: [Date?]?
     /// Small secondary line under the email, such as the desktop profile name.
     var detail: String? = nil
+    var extraUsage: [UsageLine] = []
+    var unavailableUsage: [String] = []
     /// When true only the email row is shown; usage, errors and credits are hidden.
     var isCollapsed = false
     var toggleCollapsed: () -> Void = {}
@@ -934,9 +982,27 @@ private struct AccountCard: View {
                             self.weekly
                         }
                         .fixedSize(horizontal: false, vertical: true)
-                    } else {
+                    } else if self.extraUsage.isEmpty {
                         Text("Usage unavailable")
                             .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    ForEach(Array(stride(from: 0, to: self.extraUsage.count, by: 2)), id: \.self) { index in
+                        HStack(spacing: 10) {
+                            self.extraUsage[index].frame(maxWidth: .infinity)
+                            if index + 1 < self.extraUsage.count {
+                                Divider()
+                                self.extraUsage[index + 1].frame(maxWidth: .infinity)
+                            } else {
+                                Color.clear.frame(maxWidth: .infinity)
+                            }
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if !self.unavailableUsage.isEmpty {
+                        Text("Unavailable: " + self.unavailableUsage.joined(separator: ", "))
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
 
@@ -983,6 +1049,9 @@ private struct AccountCard: View {
             } else {
                 if let session = self.session { UsageRing(line: session) }
                 if let weekly = self.weekly { UsageRing(line: weekly) }
+                ForEach(self.extraUsage.indices, id: \.self) { index in
+                    UsageRing(line: self.extraUsage[index])
+                }
             }
             ForEach(self.openButtons.indices, id: \.self) { index in
                 OpenAppButton(button: self.openButtons[index], compact: true)
@@ -1008,12 +1077,14 @@ private struct UsageLine: View {
     let title: String
     let remaining: Double
     let resetDate: Date?
+    let resetDescription: String?
 
-    init?(title: String, remaining: Double?, resetDate: Date?) {
+    init?(title: String, remaining: Double?, resetDate: Date?, resetDescription: String? = nil) {
         guard let remaining else { return nil }
         self.title = title
         self.remaining = remaining
         self.resetDate = resetDate
+        self.resetDescription = resetDescription
     }
 
     var body: some View {
@@ -1042,6 +1113,12 @@ private struct UsageLine: View {
                 }
             }
             .frame(height: 5)
+            if self.resetDate == nil, let description = self.resetDescription, !description.isEmpty {
+                Text(description)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 

@@ -7,6 +7,7 @@ A native macOS menu-bar companion for switching between saved Codex accounts and
 - Live session and weekly usage with reset countdowns
 - Automatic active-account quota refresh whenever the menu opens
 - Claude Code session and weekly quota from file-backed OAuth credentials
+- Gemini section with automatic Antigravity account detection and session/weekly quota refresh
 - Available reset-credit count and individual expiry dates
 - Active and recommended account badges
 - One-click account switching
@@ -27,6 +28,10 @@ Enable **Stay Awake** below the header before a long AI run. It works while the 
 The **Claude Code** section shows every signed-in Claude Code login plus saved copies. On macOS Claude Code keeps its login in the Keychain item `Claude Code-credentials` (one suffixed item per custom `CLAUDE_CONFIG_DIR`); the bar reads these with `/usr/bin/security`, and falls back to `~/.claude/.credentials.json` (or `CLAUDE_CONFIG_DIR` / `CLAUDE_SECURESTORAGE_CONFIG_DIR`) when that file exists. Quota comes from Anthropic's OAuth usage endpoint. Use **Save Current Claude Code** to keep a copy under `~/.go-codex-switch/claude/`; choosing another card, **Next Claude Code** or **Maxing Claude Code** saves the outgoing login and writes the chosen one back to where Claude Code keeps it. Restart running `claude` sessions afterwards.
 
 The **Claude Desktop** section is separate: one card per Claude app profile, labelled with the profile name. When a profile holds several claude.ai sessions (an old account's cookie can linger after signing in to another), the newest sign-in wins.
+
+The **Gemini** section automatically detects usage sources and refreshes when the panel opens or you click Refresh. It detects the signed-in Antigravity desktop app, tries the `agy` CLI, then the Antigravity IDE. Cards show the account email and plan when the source supplies them, with Gemini session/weekly limits in the first row and Claude/GPT session/weekly limits in the second. Missing quota stays unavailable; weekly-only plans do not get an invented session limit. Use the eye buttons to collapse cards or hide the section.
+
+Keep Antigravity open and signed in for desktop detection. Both older command-line CSRF tokens and newer `ANTIGRAVITY_SERVER_CSRF_TOKEN` process-environment tokens are supported. Only the current user's recognized Antigravity processes are inspected; tokens are used for localhost quota requests and are never saved or logged. If the app is closed, a signed-in `agy` 1.1.11+ can supply a structured `/usage` report. Set `ANTIGRAVITY_CLI_PATH` if its executable is outside PATH; an explicit invalid override disables CLI discovery. CLI reports without account identity are labelled `agy CLI`. Passive checks disable CLI auto-updates and browser sign-in launchers. This feature reads existing local sessions; it does not create OAuth logins, switch Google accounts, or estimate quota from conversation history.
 
 **Lid Awake**, beside Stay Awake, uses `pmset -a disablesleep 1` to disable system sleep, including lid-close sleep, so processes and network activity can continue. macOS asks for administrator approval when you change it. The toggle reads the actual system setting whenever the panel opens; it does not save a separate app preference. **This is system-wide, affects battery and charger use, and remains active after quitting or uninstalling the app.** Turn Lid Awake off to restore sleep, or run `sudo pmset -a disablesleep 0` in Terminal. It also blocks normal system sleep, rather than only lid-close sleep. Keep the laptop ventilated and turn Lid Awake off before putting it in a bag. Closed-lid behavior must be checked on your Mac and macOS version. It cannot guarantee network connectivity or prevent shutdown from battery depletion or overheating.
 
@@ -87,6 +92,13 @@ make bar-package
 ```
 
 `make bar-test` builds the app, runs the Stay Awake lifecycle test against macOS power assertions, and tests Lid Awake authorization/state handling with simulated commands. Tests do not change the system sleep setting. The included build wrapper selects the SDK compatible with the installed Swift compiler and keeps compiler caches inside the project.
+
+Gemini parser, discovery, source fallback, and command-limit tests use synthetic data. To check a running, signed-in Antigravity instance explicitly:
+
+```bash
+cd go-codex-bar
+GO_CODEX_BAR_TEST_LIVE_GEMINI=1 ./Scripts/swift.sh test --disable-sandbox --filter GeminiUsageTests/testLiveDetectionWhenExplicitlyRequested
+```
 
 If Xcode is installed but the Command Line Tools are still active, select Xcode and complete its first-launch setup before building:
 
